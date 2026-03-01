@@ -5,7 +5,9 @@ const { Pool } = pkg;
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import jwt from 'jsonwebtoken';
 
+// Load environment variables FIRST
 dotenv.config();
 
 const pool = new Pool({
@@ -74,15 +76,56 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
+  // Debug: Log JWT_SECRET status
+  console.log('Server JWT_SECRET:', process.env.JWT_SECRET ? process.env.JWT_SECRET.substring(0, 10) + '...' : 'NOT SET');
+
+  // --- Authentication Routes ---
+  // Dynamically import authRoutes after env is loaded
+  const { default: authRoutes } = await import("./src/auth/authRoutes.js");
+  app.use('/api/auth', authRoutes(pool));
+
+  // --- Middleware to protect routes ---
+  const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    console.log('Auth middleware - Token present:', !!token, 'JWT_SECRET present:', !!process.env.JWT_SECRET);
+
+    if (!token) {
+      console.log('Auth failed: No token provided');
+      return res.status(401).json({ error: 'Access token required' });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+      console.log('Token verified successfully for user:', (decoded as any).email);
+      (req as any).user = decoded;
+      next();
+    } catch (err) {
+      console.error('Token verification failed:', (err as Error).message);
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+  };
+
   // --- API Routes ---
 
-  // Patients
-  app.get("/api/patients", async (req, res) => {
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      database: "connected",
+      auth: "configured"
+    });
+  });
+
+  // Patients (Protected)
+  app.get("/api/patients", authenticateToken, async (req, res) => {
     const result = await pool.query("SELECT * FROM patients ORDER BY created_at DESC");
     res.json(result.rows);
   });
 
-  app.post("/api/patients", async (req, res) => {
+  app.post("/api/patients", authenticateToken, async (req, res) => {
     const { first_name, last_name, date_of_birth, gender, phone, email, address } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     await pool.query(`
@@ -92,7 +135,7 @@ async function startServer() {
     res.json({ id, first_name, last_name });
   });
 
-  app.get("/api/patients/:id", async (req, res) => {
+  app.get("/api/patients/:id", authenticateToken, async (req, res) => {
     const patientRes = await pool.query("SELECT * FROM patients WHERE id = $1", [req.params.id]);
     const patient = patientRes.rows[0];
     if (!patient) return res.status(404).json({ error: "Patient not found" });
@@ -103,13 +146,13 @@ async function startServer() {
     res.json({ ...patient, emrs: emrsRes.rows, documents: documentsRes.rows });
   });
 
-  app.delete("/api/patients/:id", async (req, res) => {
+  app.delete("/api/patients/:id", authenticateToken, async (req, res) => {
     await pool.query("DELETE FROM patients WHERE id = $1", [req.params.id]);
     res.json({ success: true });
   });
 
-  // EMRs
-  app.post("/api/emrs", async (req, res) => {
+  // EMRs (Protected)
+  app.post("/api/emrs", authenticateToken, async (req, res) => {
     const { patient_id, diagnosis, treatment_plan, notes, visit_date } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     await pool.query(`
@@ -119,8 +162,8 @@ async function startServer() {
     res.json({ id });
   });
 
-  // AI OCR & EMR Generation
-  app.post("/api/process-document", async (req, res) => {
+  // AI OCR & EMR Generation (Protected)
+  app.post("/api/process-document", authenticateToken, async (req, res) => {
     const { patient_id, imageData, mimeType } = req.body;
     
     const apiKey = process.env.GEMINI_API_KEY;
@@ -188,8 +231,8 @@ async function startServer() {
     }
   });
 
-  // Chatbot Endpoint
-  app.post("/api/chat", async (req, res) => {
+  // Chatbot Endpoint (Protected)
+  app.post("/api/chat", authenticateToken, async (req, res) => {
     const { message, history } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
     

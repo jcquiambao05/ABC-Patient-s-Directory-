@@ -23,9 +23,11 @@ import {
   Mail,
   MapPin,
   ArrowLeft,
-  Send
+  Send,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import Login from './Login';
 
 // --- Types ---
 
@@ -68,13 +70,13 @@ interface Message {
 
 // --- Components ---
 
-const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (t: string) => void }) => (
+const Sidebar = ({ activeTab, setActiveTab, onLogout }: { activeTab: string, setActiveTab: (t: string) => void, onLogout: () => void }) => (
   <div className="w-64 bg-zinc-950 text-zinc-400 h-screen flex flex-col border-r border-zinc-800">
     <div className="p-6 flex items-center gap-3 text-white">
       <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
         <Activity className="w-5 h-5 text-zinc-950" />
       </div>
-      <span className="font-bold text-lg tracking-tight">MediFlow AI</span>
+      <span className="font-bold text-lg tracking-tight">ABC Patient Directory</span>
     </div>
     
     <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -97,7 +99,7 @@ const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
       ))}
     </nav>
 
-    <div className="p-4 border-t border-zinc-800">
+    <div className="p-4 border-t border-zinc-800 space-y-4">
       <div className="bg-zinc-900/50 rounded-xl p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">System Status</p>
         <div className="flex items-center gap-2 text-emerald-400 text-sm">
@@ -105,11 +107,21 @@ const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
           AI Engine Online
         </div>
       </div>
+      
+      <button
+        onClick={onLogout}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all hover:bg-zinc-900 hover:text-red-400 text-zinc-400"
+      >
+        <LogOut className="w-5 h-5" />
+        <span className="font-medium">Sign Out</span>
+      </button>
     </div>
   </div>
 );
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('directory');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -122,22 +134,149 @@ export default function App() {
   ]);
   const [chatInput, setChatInput] = useState('');
 
-  // Fetch patients
+  // Debug logging
+  console.log('App rendering - isAuthenticated:', isAuthenticated, 'authToken:', authToken ? 'present' : 'null');
+
+  // Check for existing auth token on mount
   useEffect(() => {
-    fetchPatients();
+    const token = localStorage.getItem('mediflow_auth_token');
+    console.log('Checking localStorage for token:', token ? 'found' : 'not found');
+    
+    if (token) {
+      // Verify token is still valid
+      fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => {
+          console.log('Token validation response:', res.status);
+          if (res.ok) {
+            setAuthToken(token);
+            setIsAuthenticated(true);
+          } else {
+            console.log('Token invalid, clearing localStorage');
+            localStorage.removeItem('mediflow_auth_token');
+            setAuthToken(null);
+            setIsAuthenticated(false);
+          }
+        })
+        .catch((err) => {
+          console.error('Token validation error:', err);
+          localStorage.removeItem('mediflow_auth_token');
+          setAuthToken(null);
+          setIsAuthenticated(false);
+        });
+    }
   }, []);
 
+  const handleLoginSuccess = async (token: string) => {
+    console.log('Login success! Token received:', token.substring(0, 20) + '...');
+    localStorage.setItem('mediflow_auth_token', token);
+    setAuthToken(token);
+    setIsAuthenticated(true);
+    
+    // Immediately fetch patients after successful login
+    try {
+      console.log('Fetching patients immediately after login...');
+      const res = await fetch('/api/patients', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      console.log('Immediate fetch response:', res.status, res.statusText);
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log('Patients loaded immediately:', data.length);
+        setPatients(data);
+      } else {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Failed to fetch patients immediately:', res.status, errorData);
+      }
+    } catch (error) {
+      console.error('Error fetching patients immediately:', error);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('mediflow_auth_token');
+    setAuthToken(null);
+    setIsAuthenticated(false);
+  };
+
+  // Fetch patients when authenticated
+  useEffect(() => {
+    if (authToken && isAuthenticated) {
+      fetchPatients();
+    }
+  }, [authToken, isAuthenticated]);
+
   const fetchPatients = async () => {
-    const res = await fetch('/api/patients');
-    const data = await res.json();
-    setPatients(data);
+    if (!authToken) {
+      console.log('No auth token available, skipping patient fetch');
+      return;
+    }
+    
+    try {
+      console.log('Fetching patients with token:', authToken?.substring(0, 20) + '...');
+      console.log('Full Authorization header:', `Bearer ${authToken.substring(0, 30)}...`);
+      
+      const res = await fetch('/api/patients', {
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('Fetch patients response:', res.status, res.statusText);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Failed to fetch patients:', res.status, errorData);
+        
+        // If token is invalid, clear auth state
+        if (res.status === 401 || res.status === 403) {
+          console.log('Token invalid, clearing auth state');
+          localStorage.removeItem('mediflow_auth_token');
+          setAuthToken(null);
+          setIsAuthenticated(false);
+        }
+        return;
+      }
+      
+      const data = await res.json();
+      console.log('Patients loaded successfully:', data.length, 'patients');
+      setPatients(data);
+    } catch (error) {
+      console.error('Error fetching patients:', error);
+    }
   };
 
   const fetchPatientDetails = async (id: string) => {
-    const res = await fetch(`/api/patients/${id}`);
-    const data = await res.json();
-    setSelectedPatient(data);
-    setPatientDetails({ emrs: data.emrs, documents: data.documents });
+    if (!authToken) {
+      console.error('No auth token available for fetching patient details');
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/patients/${id}`, {
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Failed to fetch patient details:', res.status, errorData);
+        return;
+      }
+      
+      const data = await res.json();
+      console.log('Patient details loaded:', data);
+      setSelectedPatient(data);
+      setPatientDetails({ emrs: data.emrs, documents: data.documents });
+    } catch (error) {
+      console.error('Error fetching patient details:', error);
+    }
   };
 
   const handleAddPatient = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -147,7 +286,10 @@ export default function App() {
     
     await fetch('/api/patients', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
       body: JSON.stringify(patientData),
     });
     
@@ -167,7 +309,10 @@ export default function App() {
       try {
         const res = await fetch('/api/process-document', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
           body: JSON.stringify({
             patient_id: selectedPatient.id,
             imageData: base64,
@@ -199,7 +344,10 @@ export default function App() {
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
         body: JSON.stringify({
           message: currentInput,
           history: chatMessages.map(m => ({
@@ -234,9 +382,17 @@ export default function App() {
 
   const cabinets = Object.keys(groupedPatients).sort();
 
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    console.log('Showing login screen');
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  console.log('Showing main app - patients:', patients.length);
+
   return (
     <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
       
       <main className="flex-1 overflow-hidden flex flex-col">
         {activeTab === 'directory' && (

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MediFlow Test Page</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+        .box { background: white; padding: 20px; border-radius: 8px; margin: 10px 0; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>MediFlow Diagnostic Test</h1>
+    
+    <div class="box">
+        <h2>1. HTML Loading</h2>
+        <p class="success">✅ If you see this, HTML is working!</p>
+    </div>
+    
+    <div class="box">
+        <h2>2. JavaScript Test</h2>
+        <p id="js-test" class="error">❌ JavaScript not working</p>
+    </div>
+    
+    <div class="box">
+        <h2>3. API Test</h2>
+        <p id="api-test">Testing...</p>
+    </div>
+    
+    <div class="box">
+        <h2>4. Instructions</h2>
+        <p>If all tests pass, the issue is with React/Vite, not the server.</p>
+        <p><a href="/">Go back to main app</a></p>
+    </div>
+    
+    <script>
+        // Test 2: JavaScript
+        document.getElementById('js-test').innerHTML = '<span class="success">✅ JavaScript is working!</span>';
+        
+        // Test 3: API
+        fetch('/api/health')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('api-test').innerHTML = 
+                    '<span class="success">✅ API is working! Status: ' + data.status + '</span>';
+            })
+            .catch(err => {
+                document.getElementById('api-test').innerHTML = 
+                    '<span class="error">❌ API error: ' + err.message + '</span>';
+            });
+    </script>
+</body>
+</html>

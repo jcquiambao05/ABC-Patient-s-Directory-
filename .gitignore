@@ -1,48 +1,320 @@
-# --- Environment / Secrets (CRITICAL) ---
+# ============================================
+# MediFlow AI - Comprehensive .gitignore
+# ============================================
+# This file prevents sensitive data from being committed to GitHub
+# CRITICAL: Review before pushing to ensure no secrets are exposed
+
+# ============================================
+# 🔐 SECRETS & CREDENTIALS (CRITICAL!)
+# ============================================
+# Environment files containing API keys, passwords, secrets
 .env
+.env.*
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backup
+.env.bak
+*.env
+
+# Authentication & OAuth credentials
 auth.json
 secrets.json
+credentials.json
+token.json
+client_secret*.json
+service-account*.json
 
-# --- Database ---
+# Google OAuth files
+google JSON/
+google-credentials/
+oauth-credentials/
+
+# JWT secrets and keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa*
+*.pub
+
+# SSL/TLS certificates
+ssl/
+certs/
+*.csr
+
+# Database credentials
+database.yml
+database.json
+db-config.json
+
+# ============================================
+# 💾 DATABASE FILES
+# ============================================
+# SQL dumps and backups (may contain sensitive patient data)
 *.sql
 *.dump
-# Ignore local data directory if you run Postgres in a container or local folder
+*.backup
+*.bak
+backup*.sql
+*_backup.sql
+database_backup/
+backups/
+
+# PostgreSQL data directories
 pgdata/
 postgres-data/
+postgresql-data/
+.postgres/
 
-# --- Dependencies ---
+# Database volumes
+docker/volumes/db/
+volumes/
+
+# Supabase local data
+.supabase/
+supabase/.branches/
+supabase/.temp/
+
+# ============================================
+# 📦 DEPENDENCIES
+# ============================================
+# Node.js
 node_modules/
 jspm_packages/
 .npm
-vendor/
+.yarn/
+.pnp.*
+.yarn-integrity
+
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+.Python
+venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# --- Logs & Debugging ---
+# Package manager locks (optional - some teams commit these)
+# Uncomment if you want to ignore:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ============================================
+# 🏗️ BUILD OUTPUTS
+# ============================================
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
+
+# ============================================
+# 📝 LOGS & DEBUGGING
+# ============================================
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.log
-logs/
+pnpm-debug.log*
+lerna-debug.log*
 .pnpm-debug.log*
 
-# --- IDE / System Junk ---
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ============================================
+# 🖥️ IDE & EDITOR FILES
+# ============================================
+# VSCode
 .vscode/
+.vscode-test/
+*.code-workspace
+
+# JetBrains IDEs (WebStorm, IntelliJ, etc.)
 .idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================
+# 🖱️ OPERATING SYSTEM FILES
+# ============================================
+# macOS
 .DS_Store
-dist/
-build/
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
 
-# Secrets
-.env
-.env.local
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# Supabase & Local DB folders
-.supabase/
-docker/volumes/db/
+# Linux
+.directory
+.Trash-*
 
-# Prevent accidental credential leaks
-credentials.json
-*.env.bak
+# ============================================
+# 🐳 DOCKER & CONTAINERS
+# ============================================
+# Docker volumes with sensitive data
+docker-compose.override.yml
+.dockerignore.local
+
+# Container data
+containers/
+volumes/
+
+# ============================================
+# 🧪 TESTING & COVERAGE
+# ============================================
+coverage/
+.nyc_output/
+*.lcov
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# ============================================
+# 📊 TEMPORARY & CACHE FILES
+# ============================================
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
+.sass-cache/
+
+# ============================================
+# 🏥 MEDICAL DATA (HIPAA COMPLIANCE)
+# ============================================
+# Patient data exports
+patient-data/
+patient-exports/
+medical-records/
+emr-exports/
+*.csv
+*.xlsx
+*.xls
+
+# Document uploads (may contain PHI)
+uploads/
+documents/
+scanned-documents/
+medical-images/
+
+# AI processing outputs
+ai-outputs/
+ocr-results/
+processed-documents/
+
+# ============================================
+# 🔧 KIRO AI ASSISTANT
+# ============================================
+.kiro/
+.kiro-cache/
+
+# ============================================
+# 📚 DOCUMENTATION (SENSITIVE)
+# ============================================
+# Files with sensitive information
+PRIVATE*.md
+SECRET*.md
+INTERNAL*.md
+CONFIDENTIAL*.md
+
+# Personal notes
+notes.md
+TODO-private.md
+PASSWORDS.md
+
+# ============================================
+# 🎯 PROJECT-SPECIFIC
+# ============================================
+# Execution scripts with hardcoded credentials
+execution/*.py.local
+execution/config.json
+
+# Directives with sensitive info
+directives/*-private.md
+
+# Local configuration
+config.local.js
+config.local.json
+
+# ============================================
+# 🚫 NEVER COMMIT THESE PATTERNS
+# ============================================
+*password*
+*secret*
+*private*
+*confidential*
+*api-key*
+*apikey*
+*token*
+*credentials*
+
+# Except example files
+!*.example
+!*.sample
+!*.template
+
+# ============================================
+# ✅ EXPLICITLY INCLUDE (OVERRIDE ABOVE)
+# ============================================
+# Example/template files are safe to commit
+!.env.example
+!.env.sample
+!.env.template
+!credentials.example.json
+!config.example.json
+!database.example.yml
+
+# Documentation that's safe
+!README.md
+!SETUP*.md
+!GUIDE*.md
+!DOCKER*.md
+!QUICK-START.md
+
+# ============================================
+# END OF .gitignore
+# ============================================
