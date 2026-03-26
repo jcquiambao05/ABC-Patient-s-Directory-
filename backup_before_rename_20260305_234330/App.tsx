@@ -34,33 +34,20 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
-import PatientList from './PatientList';
-import DetailPanel from './DetailPanel';
 
 // --- Types ---
 
 interface Patient {
   id: string;
-  full_name: string;
-  age: number | null;
-  gender: string;
-  date_of_birth: string;
-  civil_status: string | null;
-  address: string;
-  contact_number: string | null;
-  occupation: string | null;
-  referred_by: string | null;
-  profile_photo_path: string | null;
-  privacy_consent_signature_path: string | null;
-  privacy_consent_at: string | null;
-  created_at: string;
-  last_visit_date?: string | null;
-
-  // Legacy fields (kept temporarily for existing modals/UI)
   first_name: string;
   last_name: string;
+  date_of_birth: string;
+  gender: string;
   phone: string;
   email: string;
+  address: string;
+  created_at: string;
+  last_visit_date?: string;
 }
 
 interface EMR {
@@ -112,61 +99,6 @@ interface OCRTemplate {
 interface Message {
   role: 'user' | 'model';
   text: string;
-}
-
-// Compatibility: after the clinic overhaul, the backend returns `full_name`
-// and `consultation_records` instead of the legacy `first_name/last_name`
-// and medical-chart endpoints. The restored UI expects legacy fields, so we
-// normalize server responses into the legacy shape.
-function normalizePatient(p: any): Patient {
-  const fullName =
-    (typeof p?.full_name === 'string' ? p.full_name : null) ||
-    [p?.first_name, p?.last_name].filter((x: any) => typeof x === 'string' && x.trim()).join(' ');
-
-  const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] || '';
-  const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
-
-  const lastVisit = p?.last_visit_date ?? null;
-
-  const contactNumber =
-    p?.contact_number != null
-      ? String(p.contact_number)
-      : p?.phone != null
-        ? String(p.phone)
-        : null;
-
-  const age =
-    typeof p?.age === 'number'
-      ? p.age
-      : p?.age != null
-        ? Number(p.age)
-        : null;
-
-  return {
-    id: String(p?.id ?? ''),
-    full_name: String(fullName || '').trim(),
-    age: typeof age === 'number' && !Number.isNaN(age) ? age : null,
-    gender: p?.gender != null ? String(p.gender) : '',
-    first_name: first,
-    last_name: last,
-    date_of_birth: p?.date_of_birth ? String(p.date_of_birth) : '',
-    civil_status: p?.civil_status != null ? String(p.civil_status) : null,
-    address: p?.address != null ? String(p.address) : '',
-    contact_number: contactNumber,
-    occupation: p?.occupation != null ? String(p.occupation) : null,
-    referred_by: p?.referred_by != null ? String(p.referred_by) : null,
-    profile_photo_path: p?.profile_photo_path != null ? String(p.profile_photo_path) : null,
-    privacy_consent_signature_path:
-      p?.privacy_consent_signature_path != null ? String(p.privacy_consent_signature_path) : null,
-    privacy_consent_at: p?.privacy_consent_at != null ? String(p.privacy_consent_at) : null,
-    created_at: p?.created_at ? String(p.created_at) : '',
-    last_visit_date: lastVisit ? String(lastVisit) : null,
-
-    // Legacy
-    phone: contactNumber ?? '',
-    email: p?.email ? String(p.email) : '',
-  };
 }
 
 // --- Components ---
@@ -233,6 +165,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isAIUploadEntryModalOpen, setIsAIUploadEntryModalOpen] = useState(false);
+  const [isUpdateLastVisitModalOpen, setIsUpdateLastVisitModalOpen] = useState(false);
   const [isEditPatientModalOpen, setIsEditPatientModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [isDeletePatientModalOpen, setIsDeletePatientModalOpen] = useState(false);
@@ -300,7 +233,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         console.log('Patients loaded immediately:', data.length);
-        setPatients((Array.isArray(data) ? data : []).map(normalizePatient));
+        setPatients(data);
       } else {
         const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Failed to fetch patients immediately:', res.status, errorData);
@@ -376,7 +309,7 @@ export default function App() {
       
       const data = await res.json();
       console.log('Patients loaded successfully:', data.length, 'patients');
-      setPatients((Array.isArray(data) ? data : []).map(normalizePatient));
+      setPatients(data);
     } catch (error) {
       console.error('Error fetching patients:', error);
     }
@@ -404,46 +337,22 @@ export default function App() {
       
       const data = await res.json();
       console.log('Patient details loaded:', data);
-      setSelectedPatient(normalizePatient(data));
-
-      // Map clinic-overhaul schema into legacy UI types.
-      const consultationRecords = Array.isArray(data?.consultation_records)
-        ? data.consultation_records
-        : [];
-      const chartImages = Array.isArray(data?.chart_images) ? data.chart_images : [];
-
-      const medicalCharts: MedicalChart[] = consultationRecords.map((cr: any) => ({
-        id: String(cr?.id ?? ''),
-        patient_id: String(cr?.patient_id ?? ''),
-        visit_date: cr?.date ? String(cr.date) : '',
-        document_type: 'Consultation',
-        diagnosis: cr?.subjective_clinical_findings ? String(cr.subjective_clinical_findings) : '',
-        treatment_plan: cr?.assessment_plan ? String(cr.assessment_plan) : '',
-        notes: cr?.reviewer_notes ? String(cr.reviewer_notes) : '',
-        custom_fields: {},
-        metadata: {},
-        confidence_score: typeof cr?.confidence_score === 'number' ? cr.confidence_score : 0,
-        reviewed: !!cr?.reviewed,
-        reviewer_notes: cr?.reviewer_notes ? String(cr.reviewer_notes) : '',
-        raw_ocr_text: cr?.raw_ocr_text ? String(cr.raw_ocr_text) : '',
-        created_at: cr?.created_at ? String(cr.created_at) : '',
-        updated_at: cr?.updated_at ? String(cr.updated_at) : '',
-      }));
-
-      const documents: Document[] = chartImages.map((img: any) => ({
-        id: String(img?.id ?? ''),
-        patient_id: String(img?.patient_id ?? ''),
-        file_url: img?.file_path ? `/${String(img.file_path).replace(/^\/+/, '')}` : '',
-        extracted_text: '',
-        document_type: img?.file_type ? String(img.file_type) : 'chart',
-        status: '',
-        created_at: img?.uploaded_at ? String(img.uploaded_at) : '',
-      }));
-
-      setPatientDetails({
-        emrs: [],
-        documents,
-        medicalCharts,
+      setSelectedPatient(data);
+      
+      // Fetch medical charts
+      const chartsRes = await fetch(`/api/medical-charts/${id}`, {
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const medicalCharts = chartsRes.ok ? await chartsRes.json() : [];
+      
+      setPatientDetails({ 
+        emrs: data.emrs, 
+        documents: data.documents,
+        medicalCharts: medicalCharts
       });
     } catch (error) {
       console.error('Error fetching patient details:', error);
@@ -558,6 +467,76 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  const handleUpdateLastVisit = async () => {
+    if (!selectedPatient || !authToken) {
+      console.error('Cannot update last visit: missing patient or auth token');
+      alert('Error: Patient or authentication token missing');
+      return;
+    }
+    
+    setIsUpdateLastVisitModalOpen(false);
+    setIsProcessing(true);
+    
+    try {
+      const patientId = selectedPatient.id;
+      console.log('=== UPDATE LAST VISIT - FRONTEND ===');
+      console.log('Patient ID:', patientId);
+      console.log('Patient Name:', selectedPatient.first_name, selectedPatient.last_name);
+      console.log('Auth token present:', !!authToken);
+      console.log('Auth token (first 20 chars):', authToken.substring(0, 20) + '...');
+      
+      const url = `/api/patients/${encodeURIComponent(patientId)}/last-visit`;
+      console.log('Request URL:', url);
+      
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('Response status:', res.status);
+      console.log('Response status text:', res.statusText);
+      
+      if (res.ok) {
+        const result = await res.json();
+        console.log('✅ Last visit updated successfully:', result);
+        
+        // Refresh data
+        console.log('Refreshing patient list...');
+        await fetchPatients();
+        console.log('Refreshing patient details...');
+        await fetchPatientDetails(selectedPatient.id);
+        console.log('✅ Data refreshed');
+        
+        alert('Last visit updated successfully!');
+      } else {
+        const errorText = await res.text();
+        console.error('❌ Failed to update last visit');
+        console.error('Status:', res.status);
+        console.error('Response:', errorText);
+        
+        let errorMessage = 'Unknown error';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        alert(`Failed to update last visit: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating last visit:', error);
+      console.error('Error details:', (error as Error).message);
+      console.error('Error stack:', (error as Error).stack);
+      alert(`Failed to update last visit: ${(error as Error).message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleEditPatient = (patient: Patient) => {
     setEditingPatient({...patient});
     setIsEditPatientModalOpen(true);
@@ -652,7 +631,7 @@ export default function App() {
     if (!chartToDelete || !authToken) return;
     
     try {
-      const res = await fetch(`/api/consultation-records/${chartToDelete}`, {
+      const res = await fetch(`/api/medical-charts/${chartToDelete}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${authToken}`
@@ -678,35 +657,23 @@ export default function App() {
     if (!selectedChart || !authToken) return;
     
     try {
-      // New schema: separate save vs mark endpoints.
-      const saveRes = await fetch(`/api/consultation-records/${selectedChart.id}/save`, {
+      const res = await fetch(`/api/medical-charts/${selectedChart.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
-          subjective_clinical_findings: selectedChart.diagnosis || '',
-          assessment_plan: selectedChart.treatment_plan || '',
-          reviewer_notes: selectedChart.reviewer_notes || '',
+          diagnosis: selectedChart.diagnosis,
+          treatment_plan: selectedChart.treatment_plan,
+          notes: selectedChart.notes,
+          custom_fields: selectedChart.custom_fields,
+          reviewed: true,
+          reviewer_notes: selectedChart.reviewer_notes
         })
       });
-
-      if (!saveRes.ok) {
-        const e = await saveRes.json().catch(() => ({}));
-        throw new Error(e.error || 'Failed to save consultation record');
-      }
-
-      const markRes = await fetch(`/api/consultation-records/${selectedChart.id}/mark`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({})
-      });
-
-      if (markRes.ok) {
+      
+      if (res.ok) {
         setIsReviewModalOpen(false);
         if (selectedPatient) {
           fetchPatientDetails(selectedPatient.id);
@@ -781,41 +748,349 @@ export default function App() {
       
       <main className="flex-1 overflow-hidden flex flex-col">
         {activeTab === 'directory' && (
-          <div className="flex-1 flex overflow-hidden bg-zinc-50">
-            <div className={`min-w-0 w-full max-w-xl border-r border-zinc-200 transition-all`}>
-              <PatientList
-                patients={patients}
-                selectedPatientId={selectedPatient?.id ?? null}
-                onSelectPatient={(patientId) => {
-                  const match = patients.find((p) => p.id === patientId) || null;
-                  setSelectedPatient(match);
-                }}
-                headerActions={
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setIsAIUploadEntryModalOpen(true)}
-                      className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
-                    >
-                      <Upload className="w-4 h-4" />
-                      AI Upload Entry
-                    </button>
-                    <button
-                      onClick={() => setIsAddingPatient(true)}
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      New Entry
-                    </button>
+          <div className="flex-1 flex overflow-hidden">
+            {/* Patient List */}
+            <div className={`flex-1 flex flex-col border-r border-zinc-200 bg-white transition-all ${selectedPatient ? 'max-w-xl' : 'w-full'}`}>
+              <header className="p-6 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight">Patient Archives</h1>
+                  <p className="text-sm text-zinc-500">Organized by Cabinets A-Z</p>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setIsAIUploadEntryModalOpen(true)}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
+                  >
+                    <Upload className="w-4 h-4" />
+                    AI Upload Entry
+                  </button>
+                  <button 
+                    onClick={() => setIsAddingPatient(true)}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    New Entry
+                  </button>
+                </div>
+              </header>
+
+              <div className="px-6 py-4 bg-white border-b border-zinc-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input 
+                    type="text"
+                    placeholder="Search by name or cabinet..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-zinc-100 border-transparent focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 rounded-xl transition-all outline-none"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto bg-zinc-50/30">
+                {cabinets.length > 0 ? (
+                  cabinets.map(cabinet => (
+                    <div key={cabinet} className="mb-6">
+                      <div className="sticky top-0 bg-zinc-100/80 backdrop-blur-sm px-6 py-2 border-y border-zinc-200 flex items-center gap-2">
+                        <div className="w-6 h-6 bg-zinc-800 text-white rounded flex items-center justify-center text-xs font-bold">
+                          {cabinet}
+                        </div>
+                        <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Cabinet {cabinet}</span>
+                      </div>
+                      
+                      <div className="divide-y divide-zinc-100">
+                        {groupedPatients[cabinet].map((patient) => (
+                          <button
+                            key={patient.id}
+                            onClick={() => fetchPatientDetails(patient.id)}
+                            className={`w-full text-left p-6 transition-all group flex items-start gap-4 ${
+                              selectedPatient?.id === patient.id 
+                                ? 'bg-emerald-50/50 ring-1 ring-inset ring-emerald-100' 
+                                : 'bg-white hover:bg-zinc-50'
+                            }`}
+                          >
+                            <div className="w-14 h-14 bg-zinc-200 rounded-2xl flex-shrink-0 flex items-center justify-center text-zinc-600 font-bold text-xl shadow-sm">
+                              {patient.first_name[0]}{patient.last_name[0]}
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <h3 className="font-bold text-zinc-900 text-lg truncate">
+                                  {patient.last_name}, {patient.first_name}
+                                </h3>
+                                <span className="text-[10px] font-bold text-zinc-400 border border-zinc-200 px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                                  ID: {patient.id.slice(0, 4)}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                <div className="flex items-center gap-2 text-zinc-500">
+                                  <Phone className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="truncate">{patient.phone || 'No phone'}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-zinc-500">
+                                  <Mail className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="truncate">{patient.email || 'No email'}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-zinc-500 col-span-2">
+                                  <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>Last Visit: {patient.last_visit_date || 'No visits yet'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex flex-col items-end gap-2">
+                              <ChevronRight className={`w-5 h-5 transition-transform ${selectedPatient?.id === patient.id ? 'text-emerald-500 translate-x-1' : 'text-zinc-300'}`} />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-12 text-center text-zinc-400">
+                    <Search className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                    <p>No patients found in archives.</p>
                   </div>
-                }
-              />
+                )}
+              </div>
             </div>
 
-            <DetailPanel
-              patientId={selectedPatient?.id ?? null}
-              authToken={authToken}
-              onClose={() => setSelectedPatient(null)}
-            />
+            {/* Patient Detail View */}
+            <AnimatePresence mode="wait">
+              {selectedPatient ? (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="flex-1 bg-zinc-50 overflow-y-auto"
+                >
+                  <div className="p-8 max-w-4xl mx-auto space-y-8">
+                    {/* Header */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-6 items-center">
+                        <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-emerald-500/20">
+                          {selectedPatient.first_name[0]}{selectedPatient.last_name[0]}
+                        </div>
+                        <div>
+                          <h2 className="text-3xl font-bold tracking-tight">{selectedPatient.first_name} {selectedPatient.last_name}</h2>
+                          <div className="flex gap-4 mt-2 text-zinc-500">
+                            <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> {selectedPatient.date_of_birth}</span>
+                            <span className="flex items-center gap-1.5 capitalize"><Users className="w-4 h-4" /> {selectedPatient.gender}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleEditPatient(selectedPatient)}
+                          className="p-2 hover:bg-emerald-100 rounded-full transition-colors text-emerald-600"
+                          title="Edit patient information"
+                        >
+                          <Edit3 className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeletePatient(selectedPatient)}
+                          className="p-2 hover:bg-red-100 rounded-full transition-colors text-red-600"
+                          title="Delete patient"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={() => setSelectedPatient(null)}
+                          className="p-2 hover:bg-zinc-200 rounded-full transition-colors"
+                        >
+                          <X className="w-6 h-6 text-zinc-400" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Contact Info */}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
+                        <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Phone</p>
+                        <p className="flex items-center gap-2 font-medium"><Phone className="w-4 h-4 text-emerald-500" /> {selectedPatient.phone}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
+                        <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Email</p>
+                        <p className="flex items-center gap-2 font-medium"><Mail className="w-4 h-4 text-emerald-500" /> {selectedPatient.email}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
+                        <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Address</p>
+                        <p className="flex items-center gap-2 font-medium truncate"><MapPin className="w-4 h-4 text-emerald-500" /> {selectedPatient.address}</p>
+                      </div>
+                    </div>
+
+                    {/* EMR History */}
+                    <section className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-bold flex items-center gap-2">
+                          <Clipboard className="w-5 h-5 text-emerald-500" />
+                          Medical Records
+                        </h3>
+                        <div className="flex gap-3">
+                          <button 
+                            onClick={() => setIsUpdateLastVisitModalOpen(true)}
+                            disabled={isProcessing}
+                            className="bg-amber-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-amber-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Calendar className="w-4 h-4" />
+                            Update Last Visit
+                          </button>
+                          <button 
+                            onClick={() => setIsUploadModalOpen(true)}
+                            disabled={isProcessing}
+                            className="bg-zinc-900 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-zinc-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Upload className="w-4 h-4" />
+                            AI Upload
+                          </button>
+                        </div>
+                      </div>
+
+                      {isProcessing && (
+                        <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl flex items-center justify-center gap-3 text-emerald-700">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          AI is analyzing document and generating medical chart...
+                        </div>
+                      )}
+
+                      {/* Medical Charts (OCR Extracted) */}
+                      {patientDetails?.medicalCharts && patientDetails.medicalCharts.length > 0 && (
+                        <div className="space-y-4">
+                          <h4 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            AI-Extracted Medical Charts
+                          </h4>
+                          {patientDetails.medicalCharts
+                            .filter(chart => chart.document_type !== 'Visit Update')
+                            .map((chart) => (
+                            <div key={chart.id} className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+                              <div className="bg-zinc-50 px-6 py-3 border-b border-zinc-200 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-semibold text-zinc-600">{chart.visit_date}</span>
+                                  <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-md uppercase">
+                                    {chart.document_type}
+                                  </span>
+                                  {chart.reviewed ? (
+                                    <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md uppercase flex items-center gap-1">
+                                      <CheckCircle className="w-3 h-3" />
+                                      Reviewed
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded-md uppercase flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3" />
+                                      Needs Review
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="text-xs text-zinc-500">
+                                    Confidence: <span className={`font-bold ${chart.confidence_score >= 0.8 ? 'text-emerald-600' : chart.confidence_score >= 0.6 ? 'text-amber-600' : 'text-red-600'}`}>
+                                      {(chart.confidence_score * 100).toFixed(0)}%
+                                    </span>
+                                  </div>
+                                  <button 
+                                    onClick={() => handleReviewChart(chart)}
+                                    className="p-2 hover:bg-zinc-100 rounded-lg transition-colors text-zinc-600 hover:text-emerald-600"
+                                    title={chart.reviewed ? "View chart" : "Review chart"}
+                                  >
+                                    {chart.reviewed ? <Eye className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteChart(chart.id)}
+                                    className="p-2 hover:bg-red-50 rounded-lg transition-colors text-zinc-600 hover:text-red-600"
+                                    title="Delete chart"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="p-6 space-y-4">
+                                {chart.diagnosis && (
+                                  <div>
+                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">Diagnosis</h4>
+                                    <p className="text-lg font-semibold text-zinc-900">{chart.diagnosis}</p>
+                                  </div>
+                                )}
+                                {chart.custom_fields && Object.keys(chart.custom_fields).length > 0 && (
+                                  <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-100">
+                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Extracted Data</h4>
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                      {Object.entries(chart.custom_fields).map(([key, value]) => (
+                                        <div key={key}>
+                                          <span className="text-zinc-500 capitalize">{key.replace(/_/g, ' ')}:</span>
+                                          <span className="ml-2 font-medium text-zinc-900">
+                                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {chart.notes && (
+                                  <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-100">
+                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">Additional Notes</h4>
+                                    <p className="text-sm text-zinc-600 italic">{chart.notes}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Legacy EMRs - HIDDEN per REFACTOR-PLAN.md */}
+                      {/* Visit Records section removed - only medical charts should display */}
+                      <div className="space-y-4">
+                        {patientDetails?.emrs.length === 0 && 
+                         patientDetails?.medicalCharts.filter(c => c.document_type !== 'Visit Update').length === 0 && 
+                         !isProcessing && (
+                          <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-zinc-300">
+                            <FileText className="w-12 h-12 text-zinc-200 mx-auto mb-4" />
+                            <p className="text-zinc-500">No medical records found for this patient.</p>
+                            <p className="text-sm text-zinc-400 mt-2">Upload a document to get started with AI extraction.</p>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* Documents */}
+                    {patientDetails?.documents.length! > 0 && (
+                      <section className="space-y-4">
+                        <h3 className="text-xl font-bold flex items-center gap-2">
+                          <FileText className="w-5 h-5 text-emerald-500" />
+                          Uploaded Documents
+                        </h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          {patientDetails?.documents.map((doc) => (
+                            <div key={doc.id} className="bg-white p-4 rounded-2xl border border-zinc-200 flex items-center gap-4 shadow-sm">
+                              <div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center">
+                                <FileText className="w-6 h-6 text-zinc-400" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold truncate">{doc.document_type}</p>
+                                <p className="text-xs text-zinc-500">{new Date(doc.created_at).toLocaleDateString()}</p>
+                              </div>
+                              <button className="p-2 hover:bg-zinc-100 rounded-lg transition-colors text-zinc-400 hover:text-red-500">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 bg-zinc-50">
+                  <div className="w-24 h-24 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
+                    <Users className="w-12 h-12 text-zinc-200" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-zinc-900">Select a patient</h3>
+                  <p>Choose a patient from the list to view their medical history</p>
+                </div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
@@ -1224,6 +1499,61 @@ export default function App() {
                       accept="image/*,.pdf" 
                     />
                   </label>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Update Last Visit Confirmation Modal */}
+      <AnimatePresence>
+        {isUpdateLastVisitModalOpen && selectedPatient && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsUpdateLastVisitModalOpen(false)}
+              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                  <Calendar className="w-6 h-6 text-amber-600" />
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight mb-2">Update Last Visit?</h2>
+                <p className="text-zinc-600 mb-2">
+                  Update last visit date for <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong> to:
+                </p>
+                <p className="text-lg font-bold text-amber-600 mb-6">
+                  {new Date().toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </p>
+                
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setIsUpdateLastVisitModalOpen(false)}
+                    className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleUpdateLastVisit}
+                    className="flex-1 px-6 py-3 bg-amber-500 text-white rounded-xl font-semibold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Confirm
+                  </button>
                 </div>
               </div>
             </motion.div>

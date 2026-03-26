@@ -1,0 +1,206 @@
+{
+  "templates": {
+    "patient_chart": {
+      "name": "Patient Chart",
+      "description": "Standard patient medical chart (main template)",
+      "fields": {
+        "patient_info": {
+          "label": "Patient Information",
+          "required": true,
+          "subfields": {
+            "name": {"type": "text", "required": true},
+            "dob": {"type": "date", "required": true},
+            "gender": {"type": "text", "required": false},
+            "phone": {"type": "text", "required": false},
+            "email": {"type": "text", "required": false},
+            "address": {"type": "text", "required": false},
+            "visit_date": {"type": "date", "required": true}
+          }
+        },
+        "vitals": {
+          "label": "Vital Signs",
+          "required": false,
+          "subfields": {
+            "blood_pressure": {"type": "text", "pattern": "\\d{2,3}/\\d{2,3}", "example": "120/80"},
+            "heart_rate": {"type": "number", "unit": "bpm"},
+            "temperature": {"type": "number", "unit": "°F"},
+            "respiratory_rate": {"type": "number", "unit": "breaths/min"},
+            "oxygen_saturation": {"type": "number", "unit": "%"},
+            "weight": {"type": "number", "unit": "lbs"},
+            "height": {"type": "number", "unit": "inches"}
+          }
+        },
+        "medications": {
+          "label": "Current Medications",
+          "type": "list",
+          "required": false
+        },
+        "allergies": {
+          "label": "Allergies",
+          "type": "list",
+          "required": false
+        },
+        "diagnosis": {
+          "label": "Diagnosis",
+          "type": "textarea",
+          "required": false
+        },
+        "notes": {
+          "label": "Clinical Notes",
+          "type": "textarea",
+          "required": false
+        },
+        "additional_notes": {
+          "label": "Additional Notes",
+          "type": "textarea",
+          "required": false,
+          "description": "Any unique details or observations specific to this patient"
+        }
+      }
+    },
+    "custom": {
+      "name": "Custom Template",
+      "description": "Flexible template for special cases",
+      "fields": {
+        "patient_info": {
+          "label": "Patient Information",
+          "required": true,
+          "subfields": {
+            "name": {"type": "text", "required": true},
+            "date": {"type": "date", "required": true}
+          }
+        },
+        "document_type": {
+          "label": "Document Type",
+          "type": "text",
+          "required": true
+        },
+        "content": {
+          "label": "Content",
+          "type": "textarea",
+          "required": true
+        },
+        "additional_notes": {
+          "label": "Additional Notes",
+          "type": "textarea",
+          "required": false,
+          "description": "Any unique details specific to this patient or situation"
+        }
+      }
+    }
+  },
+  "extraction_rules": {
+    "patient_name": {
+      "patterns": [
+        "(?:Name|Patient Name)\\s*[:\\|]\\s*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)",
+        "(?:Patient)\\s*[:\\|]\\s*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)"
+      ],
+      "priority": "high"
+    },
+    "gender": {
+      "patterns": [
+        "(?:Gender|Sex)\\s*[:\\|]\\s*(Male|Female|M|F|Other)",
+        "(?:Gender|Sex)\\s*[:\\|]\\s*([MF])",
+        "\\b(Male|Female)\\b"
+      ],
+      "priority": "medium"
+    },
+    "phone": {
+      "patterns": [
+        "(?:Phone|Tel|Telephone|Contact)\\s*[:\\|]\\s*([\\d\\s\\-\\(\\)]+)",
+        "(?:Phone|Tel)\\s*[:\\|]\\s*([\\d\\-\\.\\s\\(\\)]{10,})",
+        "\\b(\\d{3}[\\-\\.]?\\d{3}[\\-\\.]?\\d{4})\\b"
+      ],
+      "priority": "medium"
+    },
+    "email": {
+      "patterns": [
+        "(?:Email|E-mail)\\s*[:\\|]\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})",
+        "\\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})\\b"
+      ],
+      "priority": "medium"
+    },
+    "address": {
+      "patterns": [
+        "(?:Address|Addr)\\s*[:\\|]\\s*([^\\n]+(?:\\n[^\\n:]+)?)",
+        "(?:Address|Addr)\\s*[:\\|]\\s*(.+?)(?=\\n(?:Phone|Email|DOB|Date|Gender)|$)"
+      ],
+      "priority": "medium"
+    },
+    "date_of_birth": {
+      "patterns": [
+        "(?:DOB|Date of Birth|Birth Date|Born)\\s*[:\\|]\\s*(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})",
+        "(?:DOB|Date of Birth|Birth Date)\\s*[:\\|]\\s*([A-Za-z]+\\s+\\d{1,2},?\\s+\\d{4})",
+        "(?:DOB|Date of Birth)\\s*[:\\|]\\s*(\\d{4}-\\d{2}-\\d{2})"
+      ],
+      "priority": "high"
+    },
+    "visit_date": {
+      "patterns": [
+        "(?:Visit Date|Date of Visit|Date)\\s*[:\\|]\\s*(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})",
+        "(?:Date)\\s*[:\\|]\\s*(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})",
+        "(?:Date)\\s*[:\\|]\\s*([A-Za-z]+\\s+\\d{1,2},?\\s+\\d{4})"
+      ],
+      "priority": "high"
+    },
+    "date": {
+      "patterns": [
+        "(?:Date)\\s*[:\\|]\\s*(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})",
+        "(\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})",
+        "([A-Za-z]+\\s+\\d{1,2},?\\s+\\d{4})",
+        "(\\d{4}-\\d{2}-\\d{2})"
+      ],
+      "priority": "medium"
+    },
+    "blood_pressure": {
+      "patterns": [
+        "(?:BP|Blood Pressure|B\\.P\\.)[:\\s]*(\\d{2,3}/\\d{2,3})",
+        "(\\d{2,3}/\\d{2,3})\\s*(?:mmHg|mm Hg)?",
+        "BP[:\\s]*(\\d{2,3}/\\d{2,3})"
+      ],
+      "priority": "medium"
+    },
+    "heart_rate": {
+      "patterns": [
+        "(?:HR|Heart Rate|Pulse)[:\\s]*(\\d{2,3})",
+        "(\\d{2,3})\\s*(?:bpm|beats)",
+        "HR[:\\s]*(\\d{2,3})"
+      ],
+      "priority": "medium"
+    },
+    "temperature": {
+      "patterns": [
+        "(?:Temp|Temperature|T)[:\\s]*(\\d{2,3}\\.?\\d?)\\s*[°]?F",
+        "Temp[:\\s]*(\\d{2,3}\\.?\\d?)",
+        "(\\d{2,3}\\.\\d)\\s*F"
+      ],
+      "priority": "medium"
+    },
+    "diagnosis": {
+      "patterns": [
+        "(?:ASSESSMENT & PLAN|Assessment|Diagnosis|Dx|DIAGNOSIS)[:\\s]*([^\\n]+)",
+        "(?:Suspected|Diagnosis)[:\\s]*([^\\n]+)",
+        "A&P[:\\s]*([^\\n]+)"
+      ],
+      "priority": "high"
+    },
+    "medications": {
+      "patterns": [
+        "medications?[:\\s]+([^\\n]+)",
+        "rx[:\\s]+([^\\n]+)",
+        "prescriptions?[:\\s]+([^\\n]+)"
+      ],
+      "priority": "medium",
+      "split_by": ","
+    },
+    "allergies": {
+      "patterns": [
+        "allergies[:\\s]+([^\\n]+)",
+        "allergy[:\\s]+([^\\n]+)",
+        "nkda",
+        "no known drug allergies"
+      ],
+      "priority": "high"
+    }
+  }
+}

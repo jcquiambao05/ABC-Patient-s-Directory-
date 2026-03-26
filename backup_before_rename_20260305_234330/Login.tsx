@@ -211,7 +211,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4 shadow-lg shadow-emerald-500/20">
             <Activity className="w-8 h-8 text-zinc-950" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-2">ABCare OmniFlow: Clinic Management</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight mb-2">MediFlow AI</h1>
           <p className="text-zinc-400">Secure Admin Access</p>
         </div>
 

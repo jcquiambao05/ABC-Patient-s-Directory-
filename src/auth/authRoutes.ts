@@ -23,9 +23,9 @@ const JWT_EXPIRES_IN = '8h';
 console.log('AuthRoutes JWT_SECRET:', JWT_SECRET ? JWT_SECRET.substring(0, 10) + '...' : 'NOT SET');
 
 // Helper: Generate JWT token
-const generateToken = (userId: string, email: string) => {
+const generateToken = (userId: string, email: string, role: string = 'staff') => {
   return jwt.sign(
-    { userId, email, role: 'admin' },
+    { userId, email, role },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
@@ -85,7 +85,7 @@ export default function initAuthRoutes(pool: Pool) {
 
         if (!allowedEmails.includes(email.toLowerCase())) {
           console.warn(`⚠️  Unauthorized Google OAuth attempt from: ${email}`);
-          return done(new Error('This Google account is not authorized to access MediFlow AI'), undefined);
+          return done(new Error('This Google account is not authorized to access ABC Patient Directory'), undefined);
         }
 
         // Check if user exists
@@ -200,15 +200,16 @@ export default function initAuthRoutes(pool: Pool) {
         });
       }
 
-      // Generate full access token
-      const token = generateToken(user.id, user.email);
+      // Generate full access token (include role from DB)
+      const token = generateToken(user.id, user.email, user.role || 'staff');
 
       res.json({
         token,
         user: {
           id: user.id,
           email: user.email,
-          name: user.name
+          name: user.name,
+          role: user.role || 'staff'
         }
       });
 
@@ -259,14 +260,15 @@ export default function initAuthRoutes(pool: Pool) {
       }
 
       // Generate full access token
-      const token = generateToken(user.id, user.email);
+      const token = generateToken(user.id, user.email, user.role || 'staff');
 
       res.json({
         token,
         user: {
           id: user.id,
           email: user.email,
-          name: user.name
+          name: user.name,
+          role: user.role || 'staff'
         }
       });
 
@@ -391,8 +393,8 @@ export default function initAuthRoutes(pool: Pool) {
 
       // Generate MFA secret
       const secret = speakeasy.generateSecret({
-        name: `MediFlow AI (${user.email})`,
-        issuer: 'MediFlow AI'
+        name: `ABC Patient Directory (${user.email})`,
+        issuer: 'ABC Patient Directory'
       });
 
       // Generate QR code
@@ -550,7 +552,7 @@ export default function initAuthRoutes(pool: Pool) {
       }
 
       // Generate JWT token
-      const token = generateToken(user.id, user.email);
+      const token = generateToken(user.id, user.email, user.role || 'staff');
 
       // Redirect to frontend with token
       res.redirect(`/?token=${token}`);
@@ -563,7 +565,7 @@ export default function initAuthRoutes(pool: Pool) {
 
     try {
       const result = await pool.query(
-        'SELECT id, email, name, mfa_enabled, created_at, last_login FROM admin_users WHERE id = $1',
+        'SELECT id, email, name, role, mfa_enabled, created_at, last_login FROM admin_users WHERE id = $1',
         [userId]
       );
 
