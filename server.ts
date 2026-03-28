@@ -396,6 +396,38 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
+  // ── AI Extract Data (extraction only, no creation) ─────────────────────
+  app.post("/api/patients/ai-extract", authenticateToken, requireRole('staff'), async (req, res) => {
+    const { imageData } = req.body;
+    if (!imageData) return res.status(400).json({ error: 'Image data is required' });
+    try {
+      let ocrResponse: Response;
+      try {
+        ocrResponse = await fetch('http://localhost:5000/process', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageData, template: 'patient_chart' })
+        });
+      } catch { return res.status(503).json({ error: 'OCR service unavailable. Ensure it is running on port 5000.' }); }
+
+      if (!ocrResponse.ok) return res.status(500).json({ error: 'OCR processing failed' });
+      const ocrResult = await ocrResponse.json();
+      if (!ocrResult.success || !ocrResult.full_text?.trim()) return res.status(400).json({ error: 'No text extracted from image' });
+
+      const d = ocrResult.extracted_data;
+      res.json({
+        success: true,
+        extractedData: {
+          name: d.patient_name || '',
+          phone: d.phone || '',
+          email: d.email || '',
+          diagnosis: d.diagnosis || ''
+        },
+        rawText: ocrResult.full_text,
+        confidence: ocrResult.stats?.avg_confidence || 0
+      });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
   // ── AI Upload Entry (new schema) ───────────────────────────────────────
   app.post("/api/patients/ai-create", authenticateToken, requireRole('staff'), async (req, res) => {
     const { imageData } = req.body;

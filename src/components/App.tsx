@@ -1,1408 +1,213 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  HistoryIcon,
-  Users, 
-  UserPlus, 
-  Search, 
-  FileText, 
-  Upload, 
-  MessageSquare, 
-  Calendar, 
-  ChevronRight, 
-  Trash2, 
-  Plus,
-  X,
-  Loader2,
-  Activity,
-  Clipboard,
-  Phone,
-  Mail,
-  MapPin,
-  ArrowLeft,
-  Send,
-  LogOut,
-  CheckCircle,
-  AlertCircle,
-  Eye,
-  Edit3,
-  Save
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Users, UserPlus, Search, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
-import PatientList from './PatientList';
+import Sidebar from './Sidebar';
+import PatientCard from './PatientCard';
 import DetailPanel from './DetailPanel';
-
-// --- Types ---
-
-interface Patient {
-  id: string;
-  full_name: string;
-  age: number | null;
-  gender: string;
-  date_of_birth: string;
-  civil_status: string | null;
-  address: string;
-  contact_number: string | null;
-  occupation: string | null;
-  referred_by: string | null;
-  profile_photo_path: string | null;
-  privacy_consent_signature_path: string | null;
-  privacy_consent_at: string | null;
-  created_at: string;
-  last_visit_date?: string | null;
-
-  // Legacy fields (kept temporarily for existing modals/UI)
-  first_name: string;
-  last_name: string;
-  phone: string;
-  email: string;
-}
-
-interface EMR {
-  id: string;
-  patient_id: string;
-  visit_date: string;
-  diagnosis: string;
-  treatment_plan: string;
-  notes: string;
-  created_at: string;
-}
-
-interface Document {
-  id: string;
-  patient_id: string;
-  file_url: string;
-  extracted_text: string;
-  document_type: string;
-  status: string;
-  created_at: string;
-}
-
-interface MedicalChart {
-  id: string;
-  patient_id: string;
-  visit_date: string;
-  document_type: string;
-  diagnosis: string;
-  treatment_plan: string;
-  notes: string;
-  custom_fields: any;
-  metadata: any;
-  confidence_score: number;
-  reviewed: boolean;
-  reviewer_notes: string;
-  raw_ocr_text: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface OCRTemplate {
-  id: string;
-  name: string;
-  description: string;
-  required_fields: string[];
-  optional_fields: string[];
-}
-
-interface Message {
-  role: 'user' | 'model';
-  text: string;
-}
-
-// Compatibility: after the clinic overhaul, the backend returns `full_name`
-// and `consultation_records` instead of the legacy `first_name/last_name`
-// and medical-chart endpoints. The restored UI expects legacy fields, so we
-// normalize server responses into the legacy shape.
-function normalizePatient(p: any): Patient {
-  const fullName =
-    (typeof p?.full_name === 'string' ? p.full_name : null) ||
-    [p?.first_name, p?.last_name].filter((x: any) => typeof x === 'string' && x.trim()).join(' ');
-
-  const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] || '';
-  const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
-
-  const lastVisit = p?.last_visit_date ?? null;
-
-  const contactNumber =
-    p?.contact_number != null
-      ? String(p.contact_number)
-      : p?.phone != null
-        ? String(p.phone)
-        : null;
-
-  const age =
-    typeof p?.age === 'number'
-      ? p.age
-      : p?.age != null
-        ? Number(p.age)
-        : null;
-
-  return {
-    id: String(p?.id ?? ''),
-    full_name: String(fullName || '').trim(),
-    age: typeof age === 'number' && !Number.isNaN(age) ? age : null,
-    gender: p?.gender != null ? String(p.gender) : '',
-    first_name: first,
-    last_name: last,
-    date_of_birth: p?.date_of_birth ? String(p.date_of_birth) : '',
-    civil_status: p?.civil_status != null ? String(p.civil_status) : null,
-    address: p?.address != null ? String(p.address) : '',
-    contact_number: contactNumber,
-    occupation: p?.occupation != null ? String(p.occupation) : null,
-    referred_by: p?.referred_by != null ? String(p.referred_by) : null,
-    profile_photo_path: p?.profile_photo_path != null ? String(p.profile_photo_path) : null,
-    privacy_consent_signature_path:
-      p?.privacy_consent_signature_path != null ? String(p.privacy_consent_signature_path) : null,
-    privacy_consent_at: p?.privacy_consent_at != null ? String(p.privacy_consent_at) : null,
-    created_at: p?.created_at ? String(p.created_at) : '',
-    last_visit_date: lastVisit ? String(lastVisit) : null,
-
-    // Legacy
-    phone: contactNumber ?? '',
-    email: p?.email ? String(p.email) : '',
-  };
-}
-
-// --- Components ---
-
-const Sidebar = ({ activeTab, setActiveTab, onLogout }: { activeTab: string, setActiveTab: (t: string) => void, onLogout: () => void }) => (
-  <div className="w-64 bg-zinc-950 text-zinc-400 h-screen flex flex-col border-r border-zinc-800">
-    <div className="p-6 flex items-center gap-3 text-white">
-      <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-        <Activity className="w-5 h-5 text-zinc-950" />
-      </div>
-      <span className="font-bold text-lg tracking-tight">ABC Patient Directory</span>
-    </div>
-    
-    <nav className="flex-1 px-4 space-y-2 mt-4">
-      {[
-        { id: 'directory', icon: Users, label: 'Patient Directory' },
-        { id: 'chat', icon: MessageSquare, label: 'Health Assistant' },
-         { id: 'audit', icon: HistoryIcon, label: 'Audit Trail' },
-      ].map((item) => (
-        <button
-          key={item.id}
-          onClick={() => setActiveTab(item.id)}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-            activeTab === item.id 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'hover:bg-zinc-900 hover:text-zinc-200'
-          }`}
-        >
-          <item.icon className="w-5 h-5" />
-          <span className="font-medium">{item.label}</span>
-        </button>
-      ))}
-    </nav>
-
-    <div className="p-4 border-t border-zinc-800 space-y-4">
-      <div className="bg-zinc-900/50 rounded-xl p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">System Status</p>
-        <div className="flex items-center gap-2 text-emerald-400 text-sm">
-          <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-          AI Engine Online
-        </div>
-      </div>
-      
-      <button
-        onClick={onLogout}
-        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all hover:bg-zinc-900 hover:text-red-400 text-zinc-400"
-      >
-        <LogOut className="w-5 h-5" />
-        <span className="font-medium">Sign Out</span>
-      </button>
-    </div>
-  </div>
-);
+import AddPatientModal from './AddPatientModal';
+import QueuePage from './QueuePage';
+import DashboardPage from './DashboardPage';
+import ChatPage from './ChatPage';
+import AuditPage from './AuditPage';
+import { api } from '../lib/api';
+import type { Patient } from '../types/index';
 
 export default function App() {
+  const [token, setToken] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('directory');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [patientDetails, setPatientDetails] = useState<{ emrs: EMR[], documents: Document[], medicalCharts: MedicalChart[] } | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddingPatient, setIsAddingPatient] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isAIUploadEntryModalOpen, setIsAIUploadEntryModalOpen] = useState(false);
-  const [isEditPatientModalOpen, setIsEditPatientModalOpen] = useState(false);
-  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
-  const [isDeletePatientModalOpen, setIsDeletePatientModalOpen] = useState(false);
-  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState('patient_chart');
-  const [availableTemplates, setAvailableTemplates] = useState<OCRTemplate[]>([]);
-  const [selectedChart, setSelectedChart] = useState<MedicalChart | null>(null);
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [chartToDelete, setChartToDelete] = useState<string | null>(null);
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<Message[]>([
-    { role: 'model', text: 'Hello! I am your MediFlow assistant. How can I help you with patient records today?' }
-  ]);
-  const [chatInput, setChatInput] = useState('');
 
-  // Debug logging
-  console.log('App rendering - isAuthenticated:', isAuthenticated, 'authToken:', authToken ? 'present' : 'null');
-
-  // Check for existing auth token on mount
+  // Validate stored token on mount
   useEffect(() => {
-    const token = localStorage.getItem('mediflow_auth_token');
-    console.log('Checking localStorage for token:', token ? 'found' : 'not found');
-    
-    if (token) {
-      // Verify token is still valid
-      fetch('/api/auth/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-        .then(res => {
-          console.log('Token validation response:', res.status);
-          if (res.ok) {
-            setAuthToken(token);
-            setIsAuthenticated(true);
-          } else {
-            console.log('Token invalid, clearing localStorage');
-            localStorage.removeItem('mediflow_auth_token');
-            setAuthToken(null);
-            setIsAuthenticated(false);
-          }
-        })
-        .catch((err) => {
-          console.error('Token validation error:', err);
-          localStorage.removeItem('mediflow_auth_token');
-          setAuthToken(null);
-          setIsAuthenticated(false);
-        });
-    }
+    const stored = localStorage.getItem('mediflow_auth_token');
+    if (!stored) { setIsLoading(false); return; }
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${stored}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => { setToken(stored); setRole(data.user.role); setIsAuthenticated(true); })
+      .catch(() => localStorage.removeItem('mediflow_auth_token'))
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const handleLoginSuccess = async (token: string) => {
-    console.log('Login success! Token received:', token.substring(0, 20) + '...');
-    localStorage.setItem('mediflow_auth_token', token);
-    setAuthToken(token);
-    setIsAuthenticated(true);
-    
-    // Immediately fetch patients after successful login
+  const handleLoginSuccess = async (newToken: string) => {
+    localStorage.setItem('mediflow_auth_token', newToken);
+    setToken(newToken);
     try {
-      console.log('Fetching patients immediately after login...');
-      const res = await fetch('/api/patients', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      console.log('Immediate fetch response:', res.status, res.statusText);
-      
-      if (res.ok) {
-        const data = await res.json();
-        console.log('Patients loaded immediately:', data.length);
-        setPatients((Array.isArray(data) ? data : []).map(normalizePatient));
-      } else {
-        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Failed to fetch patients immediately:', res.status, errorData);
-      }
-    } catch (error) {
-      console.error('Error fetching patients immediately:', error);
-    }
+      const payload = JSON.parse(atob(newToken.split('.')[1]));
+      setRole(payload.role || 'staff');
+    } catch { setRole('staff'); }
+    setIsAuthenticated(true);
+    try { const data = await api('/api/patients', {}, newToken); setPatients(data); }
+    catch (err) { console.error(err); }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('mediflow_auth_token');
-    setAuthToken(null);
-    setIsAuthenticated(false);
+    setToken(null); setRole(null); setIsAuthenticated(false);
+    setSelectedPatient(null); setIsExpanded(false);
   };
 
-  // Fetch patients when authenticated
-  useEffect(() => {
-    if (authToken && isAuthenticated) {
-      fetchPatients();
-      fetchTemplates();
-    }
-  }, [authToken, isAuthenticated]);
+  const fetchPatients = useCallback(async () => {
+    if (!token) return;
+    try { const data = await api('/api/patients', {}, token); setPatients(data); }
+    catch (err) { console.error(err); }
+  }, [token]);
 
-  const fetchTemplates = async () => {
-    if (!authToken) return;
-    
-    try {
-      const res = await fetch('/api/ocr/templates', {
-        headers: { 'Authorization': `Bearer ${authToken}` }
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableTemplates(data.templates || []);
-      }
-    } catch (error) {
-      console.error('Error fetching templates:', error);
-    }
-  };
+  useEffect(() => { if (isAuthenticated && token) fetchPatients(); }, [isAuthenticated, token, fetchPatients]);
 
-  const fetchPatients = async () => {
-    if (!authToken) {
-      console.log('No auth token available, skipping patient fetch');
-      return;
-    }
-    
-    try {
-      console.log('Fetching patients with token:', authToken?.substring(0, 20) + '...');
-      console.log('Full Authorization header:', `Bearer ${authToken.substring(0, 30)}...`);
-      
-      const res = await fetch('/api/patients', {
-        headers: { 
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('Fetch patients response:', res.status, res.statusText);
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Failed to fetch patients:', res.status, errorData);
-        
-        // If token is invalid, clear auth state
-        if (res.status === 401 || res.status === 403) {
-          console.log('Token invalid, clearing auth state');
-          localStorage.removeItem('mediflow_auth_token');
-          setAuthToken(null);
-          setIsAuthenticated(false);
-        }
-        return;
-      }
-      
-      const data = await res.json();
-      console.log('Patients loaded successfully:', data.length, 'patients');
-      setPatients((Array.isArray(data) ? data : []).map(normalizePatient));
-    } catch (error) {
-      console.error('Error fetching patients:', error);
-    }
-  };
-
-  const fetchPatientDetails = async (id: string) => {
-    if (!authToken) {
-      console.error('No auth token available for fetching patient details');
-      return;
-    }
-    
-    try {
-      const res = await fetch(`/api/patients/${id}`, {
-        headers: { 
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Failed to fetch patient details:', res.status, errorData);
-        return;
-      }
-      
-      const data = await res.json();
-      console.log('Patient details loaded:', data);
-      setSelectedPatient(normalizePatient(data));
-
-      // Map clinic-overhaul schema into legacy UI types.
-      const consultationRecords = Array.isArray(data?.consultation_records)
-        ? data.consultation_records
-        : [];
-      const chartImages = Array.isArray(data?.chart_images) ? data.chart_images : [];
-
-      const medicalCharts: MedicalChart[] = consultationRecords.map((cr: any) => ({
-        id: String(cr?.id ?? ''),
-        patient_id: String(cr?.patient_id ?? ''),
-        visit_date: cr?.date ? String(cr.date) : '',
-        document_type: 'Consultation',
-        diagnosis: cr?.subjective_clinical_findings ? String(cr.subjective_clinical_findings) : '',
-        treatment_plan: cr?.assessment_plan ? String(cr.assessment_plan) : '',
-        notes: cr?.reviewer_notes ? String(cr.reviewer_notes) : '',
-        custom_fields: {},
-        metadata: {},
-        confidence_score: typeof cr?.confidence_score === 'number' ? cr.confidence_score : 0,
-        reviewed: !!cr?.reviewed,
-        reviewer_notes: cr?.reviewer_notes ? String(cr.reviewer_notes) : '',
-        raw_ocr_text: cr?.raw_ocr_text ? String(cr.raw_ocr_text) : '',
-        created_at: cr?.created_at ? String(cr.created_at) : '',
-        updated_at: cr?.updated_at ? String(cr.updated_at) : '',
-      }));
-
-      const documents: Document[] = chartImages.map((img: any) => ({
-        id: String(img?.id ?? ''),
-        patient_id: String(img?.patient_id ?? ''),
-        file_url: img?.file_path ? `/${String(img.file_path).replace(/^\/+/, '')}` : '',
-        extracted_text: '',
-        document_type: img?.file_type ? String(img.file_type) : 'chart',
-        status: '',
-        created_at: img?.uploaded_at ? String(img.uploaded_at) : '',
-      }));
-
-      setPatientDetails({
-        emrs: [],
-        documents,
-        medicalCharts,
-      });
-    } catch (error) {
-      console.error('Error fetching patient details:', error);
-    }
-  };
-
-  const handleAddPatient = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const patientData = Object.fromEntries(formData.entries());
-    
-    await fetch('/api/patients', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      },
-      body: JSON.stringify(patientData),
-    });
-    
-    setIsAddingPatient(false);
-    fetchPatients();
-  };
-
-  const handleAIUploadEntry = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-    
+  const handleAIUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0] || !token) return;
     setIsProcessing(true);
-    setIsAIUploadEntryModalOpen(false);
     const file = e.target.files[0];
     const reader = new FileReader();
-    
     reader.onload = async () => {
-      const base64 = reader.result as string;
       try {
-        const res = await fetch('/api/patients/ai-create', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          },
-          body: JSON.stringify({
-            imageData: base64
-          }),
-        });
-        
-        if (res.ok) {
-          const result = await res.json();
-          console.log('AI Upload Entry complete:', result);
-          fetchPatients();
-          // Optionally open the newly created patient
-          if (result.patient_id) {
-            fetchPatientDetails(result.patient_id);
-          }
-        } else {
-          const error = await res.json();
-          console.error('AI Upload Entry failed:', error);
-          alert('Failed to create patient from document: ' + (error.error || 'Unknown error'));
+        const result = await api('/api/patients/ai-create', { method: 'POST', body: JSON.stringify({ imageData: reader.result }) }, token);
+        await fetchPatients();
+        if (result.patient_id) {
+          const p = await api(`/api/patients/${result.patient_id}`, {}, token);
+          setSelectedPatient(p);
         }
-      } catch (err) {
-        console.error('AI Upload Entry error:', err);
-        alert('Failed to process document');
-      } finally {
-        setIsProcessing(false);
-      }
+      } catch (err) { alert('AI Upload failed: ' + (err as Error).message); }
+      finally { setIsProcessing(false); }
     };
-    
     reader.readAsDataURL(file);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0] || !selectedPatient) return;
-    
-    setIsProcessing(true);
-    setIsUploadModalOpen(false);
-    const file = e.target.files[0];
-    const reader = new FileReader();
-    
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      try {
-        const res = await fetch('/api/process-document', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          },
-          body: JSON.stringify({
-            patient_id: selectedPatient.id,
-            imageData: base64,
-            template: selectedTemplate
-          }),
-        });
-        
-        if (res.ok) {
-          const result = await res.json();
-          console.log('OCR processing complete:', result);
-          fetchPatientDetails(selectedPatient.id);
-        } else {
-          const error = await res.json();
-          console.error('OCR processing failed:', error);
-          alert('Failed to process document: ' + (error.error || 'Unknown error'));
-        }
-      } catch (err) {
-        console.error('Upload error:', err);
-        alert('Failed to upload document');
-      } finally {
-        setIsProcessing(false);
-      }
-    };
-    
-    reader.readAsDataURL(file);
-  };
-
-  const handleEditPatient = (patient: Patient) => {
-    setEditingPatient({...patient});
-    setIsEditPatientModalOpen(true);
-  };
-
-  const handleSavePatient = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingPatient || !authToken) return;
-    
-    try {
-      const res = await fetch(`/api/patients/${editingPatient.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          first_name: editingPatient.first_name,
-          last_name: editingPatient.last_name,
-          date_of_birth: editingPatient.date_of_birth,
-          gender: editingPatient.gender,
-          phone: editingPatient.phone,
-          email: editingPatient.email,
-          address: editingPatient.address
-        })
-      });
-      
-      if (res.ok) {
-        setIsEditPatientModalOpen(false);
-        setEditingPatient(null);
-        await fetchPatients();
-        if (selectedPatient?.id === editingPatient.id) {
-          await fetchPatientDetails(editingPatient.id);
-        }
-        alert('Patient information updated successfully!');
-      } else {
-        const error = await res.json();
-        alert('Failed to update patient: ' + (error.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Error updating patient:', error);
-      alert('Failed to update patient information');
-    }
-  };
-
-  const handleDeletePatient = (patient: Patient) => {
-    setPatientToDelete(patient);
-    setIsDeletePatientModalOpen(true);
-  };
-
-  const confirmDeletePatient = async () => {
-    if (!patientToDelete || !authToken) return;
-    
-    try {
-      const res = await fetch(`/api/patients/${patientToDelete.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`
-        }
-      });
-      
-      if (res.ok) {
-        setIsDeletePatientModalOpen(false);
-        setPatientToDelete(null);
-        if (selectedPatient?.id === patientToDelete.id) {
-          setSelectedPatient(null);
-          setPatientDetails(null);
-        }
-        await fetchPatients();
-        alert('Patient deleted successfully');
-      } else {
-        const error = await res.json();
-        alert('Failed to delete patient: ' + (error.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Error deleting patient:', error);
-      alert('Failed to delete patient');
-    }
-  };
-
-  const handleReviewChart = (chart: MedicalChart) => {
-    setSelectedChart(chart);
-    setIsReviewModalOpen(true);
-  };
-
-  const handleDeleteChart = (chartId: string) => {
-    setChartToDelete(chartId);
-    setIsDeleteConfirmOpen(true);
-  };
-
-  const confirmDeleteChart = async () => {
-    if (!chartToDelete || !authToken) return;
-    
-    try {
-      const res = await fetch(`/api/consultation-records/${chartToDelete}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`
-        }
-      });
-      
-      if (res.ok) {
-        setIsDeleteConfirmOpen(false);
-        setChartToDelete(null);
-        if (selectedPatient) {
-          fetchPatientDetails(selectedPatient.id);
-        }
-      } else {
-        alert('Failed to delete medical chart');
-      }
-    } catch (error) {
-      console.error('Error deleting chart:', error);
-      alert('Failed to delete medical chart');
-    }
-  };
-
-  const handleSaveReview = async () => {
-    if (!selectedChart || !authToken) return;
-    
-    try {
-      // New schema: separate save vs mark endpoints.
-      const saveRes = await fetch(`/api/consultation-records/${selectedChart.id}/save`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          subjective_clinical_findings: selectedChart.diagnosis || '',
-          assessment_plan: selectedChart.treatment_plan || '',
-          reviewer_notes: selectedChart.reviewer_notes || '',
-        })
-      });
-
-      if (!saveRes.ok) {
-        const e = await saveRes.json().catch(() => ({}));
-        throw new Error(e.error || 'Failed to save consultation record');
-      }
-
-      const markRes = await fetch(`/api/consultation-records/${selectedChart.id}/mark`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({})
-      });
-
-      if (markRes.ok) {
-        setIsReviewModalOpen(false);
-        if (selectedPatient) {
-          fetchPatientDetails(selectedPatient.id);
-        }
-      }
-    } catch (error) {
-      console.error('Error saving review:', error);
-      alert('Failed to save review');
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
-    
-    const userMsg: Message = { role: 'user', text: chatInput };
-    setChatMessages(prev => [...prev, userMsg]);
-    const currentInput = chatInput;
-    setChatInput('');
-
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          message: currentInput,
-          history: chatMessages.map(m => ({
-            role: m.role,
-            parts: [{ text: m.text }]
-          }))
-        }),
-      });
-      
-      const data = await res.json();
-      if (data.text) {
-        setChatMessages(prev => [...prev, { role: 'model', text: data.text }]);
-      } else {
-        throw new Error(data.error || "No response");
-      }
-    } catch (err) {
-      setChatMessages(prev => [...prev, { role: 'model', text: "I'm sorry, I encountered an error processing your request." }]);
-    }
-  };
-
-  const filteredPatients = patients.filter(p => 
-    `${p.first_name} ${p.last_name}`.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Group patients by Cabinet (First letter of Last Name)
-  const groupedPatients = filteredPatients.reduce((acc, patient) => {
-    const cabinet = patient.last_name[0].toUpperCase();
-    if (!acc[cabinet]) acc[cabinet] = [];
-    acc[cabinet].push(patient);
+  const filtered = patients.filter(p => p.full_name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const grouped = filtered.reduce((acc, p) => {
+    const key = p.full_name[0]?.toUpperCase() || '#';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(p);
     return acc;
   }, {} as Record<string, Patient[]>);
+  const cabinets = Object.keys(grouped).sort();
 
-  const cabinets = Object.keys(groupedPatients).sort();
+  if (isLoading) return (
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+    </div>
+  );
 
-  // Show login screen if not authenticated
-  if (!isAuthenticated) {
-    console.log('Showing login screen');
-    return <Login onLoginSuccess={handleLoginSuccess} />;
-  }
-
-  console.log('Showing main app - patients:', patients.length);
+  if (!isAuthenticated) return <Login onLoginSuccess={handleLoginSuccess} />;
 
   return (
-    <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-      
+    <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={t => { setActiveTab(t); setSelectedPatient(null); setIsExpanded(false); }}
+        onLogout={handleLogout}
+        role={role}
+      />
+
       <main className="flex-1 overflow-hidden flex flex-col">
+        {/* Patient Directory */}
         {activeTab === 'directory' && (
-          <div className="flex-1 flex overflow-hidden bg-zinc-50">
-            <div className={`min-w-0 w-full max-w-xl border-r border-zinc-200 transition-all`}>
-              <PatientList
-                patients={patients}
-                selectedPatientId={selectedPatient?.id ?? null}
-                onSelectPatient={(patientId) => {
-                  const match = patients.find((p) => p.id === patientId) || null;
-                  setSelectedPatient(match);
-                }}
-                headerActions={
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setIsAIUploadEntryModalOpen(true)}
-                      className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
-                    >
-                      <Upload className="w-4 h-4" />
-                      AI Upload Entry
-                    </button>
-                    <button
-                      onClick={() => setIsAddingPatient(true)}
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      New Entry
-                    </button>
-                  </div>
-                }
-              />
-            </div>
-
-            <DetailPanel
-              patientId={selectedPatient?.id ?? null}
-              authToken={authToken}
-              onClose={() => setSelectedPatient(null)}
-            />
-          </div>
-        )}
-
-        {activeTab === 'chat' && (
-          <div className="flex-1 flex flex-col bg-white">
-            <header className="p-6 border-b border-zinc-100">
-              <h1 className="text-2xl font-bold tracking-tight">MediFlow Assistant</h1>
-              <p className="text-zinc-500">AI-powered health record assistant</p>
-            </header>
-            
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-2xl p-4 rounded-2xl ${
-                    msg.role === 'user' 
-                      ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/10' 
-                      : 'bg-zinc-100 text-zinc-800'
-                  }`}>
-                    <p className="leading-relaxed">{msg.text}</p>
-                  </div>
+          <div className="flex-1 flex overflow-hidden relative">
+            {/* Patient list — slides away when panel is expanded */}
+            <motion.div
+              animate={{ width: isExpanded ? 0 : (selectedPatient ? '40%' : '100%'), opacity: isExpanded ? 0 : 1 }}
+              transition={{ duration: 0.35, ease: 'easeInOut' }}
+              className="flex flex-col border-r border-zinc-200 bg-white overflow-hidden"
+              style={{ minWidth: 0 }}
+            >
+              <header className="p-5 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight">Patient Archives</h1>
+                  <p className="text-xs text-zinc-500">Organized A–Z</p>
                 </div>
-              ))}
-            </div>
+                <div className="flex gap-2">
+                  {role === 'staff' && (
+                    <>
+                      <label className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-xl flex items-center gap-2 text-sm font-medium cursor-pointer">
+                        {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                        AI Upload
+                        <input type="file" accept="image/*" className="hidden" onChange={handleAIUpload} disabled={isProcessing} />
+                      </label>
+                      <button onClick={() => setIsAddingPatient(true)}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-xl flex items-center gap-2 text-sm font-medium">
+                        <UserPlus className="w-4 h-4" /> New Entry
+                      </button>
+                    </>
+                  )}
+                </div>
+              </header>
 
-            <div className="p-6 border-t border-zinc-100">
-              <div className="max-w-4xl mx-auto relative">
-                <input 
-                  type="text"
-                  placeholder="Ask about patients, scheduling, or records..."
-                  className="w-full pl-6 pr-16 py-4 bg-zinc-100 border-transparent focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 rounded-2xl transition-all outline-none shadow-sm"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                />
-                <button 
-                  onClick={handleSendMessage}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors shadow-sm"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
+              <div className="px-5 py-3 bg-white border-b border-zinc-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search patients..."
+                    className="w-full pl-10 pr-4 py-2 bg-zinc-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                </div>
               </div>
-            </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {cabinets.length === 0 ? (
+                  <div className="text-center py-16 text-zinc-400">
+                    <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>No patients found</p>
+                  </div>
+                ) : cabinets.map(cab => (
+                  <div key={cab}>
+                    <div className="sticky top-0 bg-zinc-100/90 backdrop-blur-sm px-5 py-1.5 border-y border-zinc-200 flex items-center gap-2">
+                      <div className="w-5 h-5 bg-zinc-800 text-white rounded flex items-center justify-center text-[10px] font-bold">{cab}</div>
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Cabinet {cab}</span>
+                    </div>
+                    <div className="divide-y divide-zinc-100">
+                      {grouped[cab].map(p => (
+                        <PatientCard key={p.id} patient={p} isSelected={selectedPatient?.id === p.id}
+                          onClick={() => { setSelectedPatient(p); setIsExpanded(false); }} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Detail panel — slides in from right, expands to full screen */}
+            <AnimatePresence>
+              {selectedPatient && (
+                <motion.div
+                  key={selectedPatient.id}
+                  initial={{ x: '100%', opacity: 0 }}
+                  animate={{ x: 0, opacity: 1, width: isExpanded ? '100%' : '60%' }}
+                  exit={{ x: '100%', opacity: 0 }}
+                  transition={{ duration: 0.35, ease: 'easeInOut' }}
+                  className="absolute right-0 top-0 h-full bg-white shadow-xl z-10"
+                  style={{ minWidth: 0 }}
+                >
+                  <DetailPanel
+                    patient={selectedPatient}
+                    token={token!}
+                    role={role}
+                    onClose={() => { setSelectedPatient(null); setIsExpanded(false); }}
+                    onRefresh={fetchPatients}
+                    isExpanded={isExpanded}
+                    onToggleExpand={() => setIsExpanded(e => !e)}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
+
+        {activeTab === 'queue' && token && <QueuePage token={token} role={role} />}
+        {activeTab === 'dashboard' && token && <DashboardPage token={token} />}
+        {activeTab === 'chat' && token && <ChatPage token={token} />}
+        {activeTab === 'audit' && token && <AuditPage token={token} />}
       </main>
 
-      {/* Add Patient Modal */}
-      <AnimatePresence>
-        {isAddingPatient && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAddingPatient(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-zinc-100 flex justify-between items-center">
-                <h2 className="text-2xl font-bold tracking-tight">Add New Patient</h2>
-                <button onClick={() => setIsAddingPatient(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-zinc-400" />
-                </button>
-              </div>
-              
-              <form onSubmit={handleAddPatient} className="p-8 space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">First Name</label>
-                    <input name="first_name" required className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Last Name</label>
-                    <input name="last_name" required className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Date of Birth</label>
-                    <input name="date_of_birth" type="date" required className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Gender</label>
-                    <select name="gender" className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all">
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Phone</label>
-                    <input name="phone" type="tel" className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Email</label>
-                    <input name="email" type="email" className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Address</label>
-                  <textarea name="address" rows={2} className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none" />
-                </div>
-                
-                <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setIsAddingPatient(false)} className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors">Cancel</button>
-                  <button type="submit" className="flex-1 px-6 py-3 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20">Create Patient Record</button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Upload Template Selection Modal */}
-      <AnimatePresence>
-        {isUploadModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsUploadModalOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-zinc-100 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Upload Medical Document</h2>
-                  <p className="text-sm text-zinc-500 mt-1">Select a template and upload an image for AI extraction</p>
-                </div>
-                <button onClick={() => setIsUploadModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-zinc-400" />
-                </button>
-              </div>
-              
-              <div className="p-8 space-y-6">
-                <div className="space-y-3">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Document Template</label>
-                  <select 
-                    value={selectedTemplate}
-                    onChange={(e) => setSelectedTemplate(e.target.value)}
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                  >
-                    <option value="patient_chart">Patient Chart</option>
-                    <option value="custom">Custom Template</option>
-                  </select>
-                  {selectedTemplate === 'patient_chart' && (
-                    <p className="text-sm text-zinc-500 italic">
-                      Standard patient medical chart (main template)
-                    </p>
-                  )}
-                  {selectedTemplate === 'custom' && (
-                    <p className="text-sm text-zinc-500 italic">
-                      Flexible template for special cases
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Upload Image</label>
-                  <label className="cursor-pointer block">
-                    <div className="border-2 border-dashed border-zinc-300 rounded-2xl p-12 text-center hover:border-emerald-500 hover:bg-emerald-50/50 transition-all">
-                      <Upload className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
-                      <p className="text-zinc-600 font-medium">Click to upload or drag and drop</p>
-                      <p className="text-sm text-zinc-400 mt-1">JPEG, PNG, or PDF (max 10MB)</p>
-                    </div>
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      onChange={handleFileUpload} 
-                      accept="image/*,.pdf" 
-                    />
-                  </label>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Chart Review Modal */}
-      <AnimatePresence>
-        {isReviewModalOpen && selectedChart && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsReviewModalOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
-            >
-              <div className="p-8 border-b border-zinc-100 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Review Medical Chart</h2>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Confidence: <span className={`font-bold ${selectedChart.confidence_score >= 0.8 ? 'text-emerald-600' : selectedChart.confidence_score >= 0.6 ? 'text-amber-600' : 'text-red-600'}`}>
-                      {(selectedChart.confidence_score * 100).toFixed(0)}%
-                    </span>
-                  </p>
-                </div>
-                <button onClick={() => setIsReviewModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-zinc-400" />
-                </button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-8 space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Visit Date</label>
-                    <input 
-                      type="date"
-                      value={selectedChart.visit_date}
-                      onChange={(e) => setSelectedChart({...selectedChart, visit_date: e.target.value})}
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Document Type</label>
-                    <input 
-                      type="text"
-                      value={selectedChart.document_type}
-                      onChange={(e) => setSelectedChart({...selectedChart, document_type: e.target.value})}
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Diagnosis</label>
-                  <textarea 
-                    value={selectedChart.diagnosis || ''}
-                    onChange={(e) => setSelectedChart({...selectedChart, diagnosis: e.target.value})}
-                    rows={3}
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Treatment Plan</label>
-                  <textarea 
-                    value={selectedChart.treatment_plan || ''}
-                    onChange={(e) => setSelectedChart({...selectedChart, treatment_plan: e.target.value})}
-                    rows={3}
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Additional Notes</label>
-                  <textarea 
-                    value={selectedChart.notes || ''}
-                    onChange={(e) => setSelectedChart({...selectedChart, notes: e.target.value})}
-                    rows={3}
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Reviewer Notes</label>
-                  <textarea 
-                    value={selectedChart.reviewer_notes || ''}
-                    onChange={(e) => setSelectedChart({...selectedChart, reviewer_notes: e.target.value})}
-                    rows={2}
-                    placeholder="Add any corrections or observations..."
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none"
-                  />
-                </div>
-
-                {selectedChart.raw_ocr_text && (
-                  <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200">
-                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Raw OCR Text</h4>
-                    <p className="text-sm text-zinc-600 font-mono whitespace-pre-wrap">{selectedChart.raw_ocr_text}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-8 border-t border-zinc-100 flex gap-4">
-                <button 
-                  type="button" 
-                  onClick={() => setIsReviewModalOpen(false)} 
-                  className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleSaveReview}
-                  className="flex-1 px-6 py-3 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  Save & Mark Reviewed
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {isDeleteConfirmOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsDeleteConfirmOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                  <Trash2 className="w-6 h-6 text-red-600" />
-                </div>
-                <h2 className="text-2xl font-bold tracking-tight mb-2">Delete Medical Chart?</h2>
-                <p className="text-zinc-600 mb-6">
-                  Are you sure you want to delete this AI-extracted medical chart? This action cannot be undone.
-                </p>
-                
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => setIsDeleteConfirmOpen(false)}
-                    className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={confirmDeleteChart}
-                    className="flex-1 px-6 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* AI Upload Entry Modal */}
-      <AnimatePresence>
-        {isAIUploadEntryModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAIUploadEntryModalOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-zinc-100 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">AI Upload Entry</h2>
-                  <p className="text-sm text-zinc-500 mt-1">Create new patient + medical record from document</p>
-                </div>
-                <button onClick={() => setIsAIUploadEntryModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-zinc-400" />
-                </button>
-              </div>
-              
-              <div className="p-8 space-y-6">
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <p className="text-sm text-blue-800">
-                    <strong>Note:</strong> This will automatically create a new patient record and their first medical chart from the uploaded document using AI extraction.
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Upload Patient Chart Image</label>
-                  <label className="cursor-pointer block">
-                    <div className="border-2 border-dashed border-zinc-300 rounded-2xl p-12 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all">
-                      <Upload className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
-                      <p className="text-zinc-600 font-medium">Click to upload patient chart</p>
-                      <p className="text-sm text-zinc-400 mt-1">JPEG, PNG, or PDF (max 10MB)</p>
-                      <p className="text-xs text-blue-600 mt-2">Will extract: Name, DOB, Gender, Phone, Email, Address, Diagnosis</p>
-                    </div>
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      onChange={handleAIUploadEntry} 
-                      accept="image/*,.pdf" 
-                    />
-                  </label>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Edit Patient Modal */}
-      <AnimatePresence>
-        {isEditPatientModalOpen && editingPatient && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsEditPatientModalOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-zinc-100 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Edit Patient Information</h2>
-                  <p className="text-sm text-zinc-500 mt-1">Update patient details</p>
-                </div>
-                <button onClick={() => setIsEditPatientModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-zinc-400" />
-                </button>
-              </div>
-              
-              <form onSubmit={handleSavePatient} className="p-8 space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">First Name</label>
-                    <input 
-                      value={editingPatient.first_name}
-                      onChange={(e) => setEditingPatient({...editingPatient, first_name: e.target.value})}
-                      required 
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Last Name</label>
-                    <input 
-                      value={editingPatient.last_name}
-                      onChange={(e) => setEditingPatient({...editingPatient, last_name: e.target.value})}
-                      required 
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Date of Birth</label>
-                    <input 
-                      type="date"
-                      value={editingPatient.date_of_birth}
-                      onChange={(e) => setEditingPatient({...editingPatient, date_of_birth: e.target.value})}
-                      required 
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Gender</label>
-                    <select 
-                      value={editingPatient.gender}
-                      onChange={(e) => setEditingPatient({...editingPatient, gender: e.target.value})}
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                    >
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Phone</label>
-                    <input 
-                      type="tel"
-                      value={editingPatient.phone || ''}
-                      onChange={(e) => setEditingPatient({...editingPatient, phone: e.target.value})}
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-zinc-500 uppercase">Email</label>
-                    <input 
-                      type="email"
-                      value={editingPatient.email || ''}
-                      onChange={(e) => setEditingPatient({...editingPatient, email: e.target.value})}
-                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all" 
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500 uppercase">Address</label>
-                  <textarea 
-                    value={editingPatient.address || ''}
-                    onChange={(e) => setEditingPatient({...editingPatient, address: e.target.value})}
-                    rows={2} 
-                    className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none" 
-                  />
-                </div>
-                
-                <div className="flex gap-4 pt-4">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsEditPatientModalOpen(false)} 
-                    className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="flex-1 px-6 py-3 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Changes
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete Patient Confirmation Modal */}
-      <AnimatePresence>
-        {isDeletePatientModalOpen && patientToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsDeletePatientModalOpen(false)}
-              className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                  <Trash2 className="w-6 h-6 text-red-600" />
-                </div>
-                <h2 className="text-2xl font-bold tracking-tight mb-2">Delete Patient?</h2>
-                <p className="text-zinc-600 mb-2">
-                  Are you sure you want to permanently delete:
-                </p>
-                <p className="text-lg font-bold text-red-600 mb-2">
-                  {patientToDelete.first_name} {patientToDelete.last_name}
-                </p>
-                <p className="text-sm text-zinc-500 mb-6">
-                  This will delete all medical records, documents, and data associated with this patient. This action cannot be undone.
-                </p>
-                
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => setIsDeletePatientModalOpen(false)}
-                    className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={confirmDeletePatient}
-                    className="flex-1 px-6 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {isAddingPatient && token && (
+        <AddPatientModal token={token} onClose={() => setIsAddingPatient(false)} onSaved={fetchPatients} />
+      )}
     </div>
   );
 }

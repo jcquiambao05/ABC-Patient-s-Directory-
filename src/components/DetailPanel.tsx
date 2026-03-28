@@ -1,435 +1,250 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, FileImage, Image as ImageIcon, Loader2, Phone, User, Mail, MapPin, Users } from 'lucide-react';
-import type { ChartImage, ConsultationRecord, Patient, PatientMedicalHistory } from '../types/index';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, ChevronLeft, ChevronRight, Loader2, Plus, Upload, FileText, Image, CheckCircle, Camera } from 'lucide-react';
+import { api } from '../lib/api';
+import ConsultationTable from './ConsultationTable';
+import type { Patient, ChartImage, Procedure, Prescription } from '../types/index';
 
-type PatientDetailResponse = Patient & {
-  medical_history: PatientMedicalHistory | null;
-  consultation_records: ConsultationRecord[];
-  chart_images: ChartImage[];
-};
-
-function toUploadUrl(path: string): string {
-  const cleaned = path.replace(/^\/+/, '');
-  return `/${cleaned}`;
+interface Props {
+  patient: Patient;
+  token: string;
+  role: string | null;
+  onClose: () => void;
+  onRefresh: () => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
 }
 
-function formatISODate(iso?: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
+export default function DetailPanel({ patient, token, role, onClose, onRefresh, isExpanded, onToggleExpand }: Props) {
+  const [fullData, setFullData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'general' | 'history' | 'consultations' | 'charts'>('general');
+  const [chartImages, setChartImages] = useState<ChartImage[]>([]);
+  const [uploadingChart, setUploadingChart] = useState(false);
+  const [chartUploadError, setChartUploadError] = useState('');
 
-function formatLastVisit(lastVisit?: string | null): string {
-  if (!lastVisit) return 'No visits yet';
-  const d = new Date(lastVisit);
-  if (Number.isNaN(d.getTime())) return 'No visits yet';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-export default function DetailPanel({
-  patientId,
-  authToken,
-  onClose,
-}: {
-  patientId: string | null;
-  authToken: string | null;
-  onClose?: () => void;
-}) {
-  const [activeTab, setActiveTab] = useState<'general' | 'consultations' | 'charts'>('general');
-  const [data, setData] = useState<PatientDetailResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [isUploadingChart, setIsUploadingChart] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!patientId || !authToken) return;
-
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    setData(null);
-
-    fetch(`/api/patients/${encodeURIComponent(patientId)}`, {
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          throw new Error(errBody?.error || `Failed to load patient (${res.status})`);
-        }
-        return (await res.json()) as PatientDetailResponse;
-      })
-      .then((json) => {
-        if (cancelled) return;
-        setData(json);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError((e as Error).message || 'Failed to load patient');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [patientId, authToken]);
-
-  useEffect(() => {
-    setActiveTab('general');
-  }, [patientId]);
-
-  const profileInitials = useMemo(() => {
-    const fullName = data?.full_name || '';
-    const parts = fullName.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return '?';
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-  }, [data?.full_name]);
-
-  const chartImagesSorted = useMemo(() => {
-    const arr = data?.chart_images ?? [];
-    return [...arr].sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
-  }, [data?.chart_images]);
-
-  const consultationsSorted = useMemo(() => {
-    const arr = data?.consultation_records ?? [];
-    return [...arr].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [data?.consultation_records]);
-
-  async function handleChartUpload(file: File) {
-    if (!patientId || !authToken) return;
-    setIsUploadingChart(true);
-    setUploadError(null);
-
+  const loadData = useCallback(async () => {
+    setLoading(true);
     try {
-      const form = new FormData();
-      form.append('file', file);
+      const [pd, ci] = await Promise.all([
+        api(`/api/patients/${patient.id}`, {}, token),
+        api(`/api/patients/${patient.id}/chart-images`, {}, token),
+      ]);
+      setFullData(pd);
+      setChartImages(ci);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  }, [patient.id, token]);
 
-      const res = await fetch(`/api/patients/${encodeURIComponent(patientId)}/chart-image`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: form,
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleChartImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    setUploadingChart(true); setChartUploadError('');
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      const res = await fetch(`/api/patients/${patient.id}/chart-image`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd
       });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      await loadData();
+    } catch (err) { setChartUploadError((err as Error).message); }
+    finally { setUploadingChart(false); }
+  };
 
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody?.error || `Upload failed (${res.status})`);
-      }
+  const mh = fullData?.medical_history;
+  const pmLabels: Record<string, string> = { hypertension: 'Hypertension', heart_disease: 'Heart Disease', diabetes_mellitus: 'Diabetes Mellitus', bronchial_asthma: 'Bronchial Asthma', tuberculosis: 'Tuberculosis', chronic_kidney_disease: 'Chronic Kidney Disease', thyroid_disease: 'Thyroid Disease', allergies: 'Allergies', surgeries: 'Surgeries', others: 'Others' };
+  const psLabels: Record<string, string> = { smoker: 'Smoker', alcohol_intake: 'Alcohol Intake', exposures: 'Exposures', others: 'Others' };
+  const fhLabels: Record<string, string> = { hypertension: 'Hypertension', diabetes_mellitus: 'Diabetes Mellitus', bronchial_asthma: 'Bronchial Asthma', cancer: 'Cancer', others: 'Others' };
 
-      // Refresh the panel so the uploaded image appears.
-      const refreshed = await fetch(`/api/patients/${encodeURIComponent(patientId)}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!refreshed.ok) return;
-      setData((await refreshed.json()) as PatientDetailResponse);
-    } catch (e) {
-      setUploadError((e as Error).message || 'Chart upload failed');
-    } finally {
-      setIsUploadingChart(false);
-    }
-  }
-
-  if (!patientId) {
-    return (
-      <div className="flex-1 flex flex-col bg-zinc-50 overflow-y-auto">
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-400">
-          <div className="w-24 h-24 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
-            <Users className="w-12 h-12 text-zinc-200" />
-          </div>
-          <h3 className="text-xl font-semibold text-zinc-900">Select a patient</h3>
-          <p>Choose a patient from the directory to view details</p>
-        </div>
-      </div>
-    );
-  }
+  const tabs = [
+    { id: 'general', label: 'General' },
+    { id: 'history', label: 'Medical History' },
+    { id: 'consultations', label: 'Consultations' },
+    { id: 'charts', label: 'Chart Images' },
+  ];
 
   return (
-    <div className="flex-1 bg-zinc-50 overflow-y-auto border-l border-zinc-200">
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-emerald-500 rounded-3xl flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-emerald-500/20">
-              {data?.profile_photo_path ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={toUploadUrl(data.profile_photo_path)}
-                  alt={`${data.full_name} profile`}
-                  className="w-full h-full object-cover rounded-3xl"
-                />
-              ) : (
-                <span>{profileInitials}</span>
-              )}
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight text-zinc-900">
-                {data?.full_name || 'Loading...'}
-              </h2>
-              <div className="flex flex-wrap gap-3 mt-2 text-zinc-500">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4" />
-                  {formatISODate(data?.date_of_birth)}
-                </span>
-                <span className="flex items-center gap-1.5 capitalize">
-                  <User className="w-4 h-4" />
-                  {data?.gender || '—'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4" />
-                  {formatLastVisit(data?.last_visit_date ?? null)}
-                </span>
-              </div>
-            </div>
+    <div className="h-full flex flex-col bg-white border-l border-zinc-200">
+      {/* Header */}
+      <div className="p-4 border-b border-zinc-100 flex items-center gap-3 bg-white sticky top-0 z-10">
+        <button onClick={onToggleExpand} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 transition-colors" title={isExpanded ? 'Collapse' : 'Expand'}>
+          {isExpanded ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+        </button>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-zinc-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+            {patient.profile_photo_path
+              ? <img src={`/${patient.profile_photo_path}`} alt="" className="w-full h-full object-cover" />
+              : <span className="font-bold text-zinc-600 text-sm">{patient.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>}
           </div>
-
-          <div className="flex gap-2">
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 hover:bg-zinc-200 rounded-full transition-colors"
-                aria-label="Close details"
-                title="Close"
-              >
-                ✕
-              </button>
-            )}
+          <div className="min-w-0">
+            <h2 className="font-bold text-zinc-900 truncate">{patient.full_name}</h2>
+            <p className="text-xs text-zinc-500">
+              {patient.gender || ''}{patient.age ? ` · ${patient.age} yrs` : ''}{patient.civil_status ? ` · ${patient.civil_status}` : ''}
+            </p>
           </div>
         </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400"><X className="w-4 h-4" /></button>
+      </div>
 
-        {/* Tabs */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('general')}
-            className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-              activeTab === 'general' ? 'bg-emerald-50 text-emerald-700' : 'text-zinc-600 hover:bg-zinc-50'
-            }`}
-          >
-            General
+      {/* Tabs */}
+      <div className="flex border-b border-zinc-100 overflow-x-auto">
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id as any)}
+            className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors ${activeTab === t.id ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-zinc-500 hover:text-zinc-700'}`}>
+            {t.label}
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('consultations')}
-            className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-              activeTab === 'consultations' ? 'bg-emerald-50 text-emerald-700' : 'text-zinc-600 hover:bg-zinc-50'
-            }`}
-          >
-            Consultation Records
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('charts')}
-            className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-              activeTab === 'charts' ? 'bg-emerald-50 text-emerald-700' : 'text-zinc-600 hover:bg-zinc-50'
-            }`}
-          >
-            Chart Images
-          </button>
-        </div>
+        ))}
+      </div>
 
-        {isLoading && (
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 flex items-center justify-center gap-3">
-            <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
-            <span className="text-zinc-700 font-medium">Loading patient details...</span>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-red-800">
-            <p className="font-semibold">Failed to load patient</p>
-            <p className="text-sm mt-1">{error}</p>
-          </div>
-        )}
-
-        {!isLoading && !error && data && activeTab === 'general' && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
-                <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Phone</p>
-                <p className="flex items-center gap-2 font-medium">
-                  <Phone className="w-4 h-4 text-emerald-500" />
-                  {data.contact_number || '—'}
-                </p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
-                <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Email</p>
-                <p className="flex items-center gap-2 font-medium">
-                  <Mail className="w-4 h-4 text-emerald-500" />
-                  {'—'}
-                </p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
-                <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Address</p>
-                <p className="flex items-center gap-2 font-medium truncate">
-                  <MapPin className="w-4 h-4 text-emerald-500" />
-                  {data.address || '—'}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5">
-              <h3 className="text-lg font-bold text-zinc-900">Patient Overview</h3>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Civil Status</p>
-                  <p className="font-medium text-zinc-800">{data.civil_status || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Occupation</p>
-                  <p className="font-medium text-zinc-800">{data.occupation || '—'}</p>
-                </div>
-                <div className="sm:col-span-2">
-                  <p className="text-xs font-semibold text-zinc-400 uppercase mb-1">Referred By</p>
-                  <p className="font-medium text-zinc-800">{data.referred_by || '—'}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!isLoading && !error && data && activeTab === 'consultations' && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold flex items-center gap-2 text-zinc-900">
-              <FileImage className="w-5 h-5 text-emerald-500" />
-              Consultation Records
-            </h3>
-
-            {consultationsSorted.length === 0 ? (
-              <div className="bg-white border border-dashed border-zinc-300 rounded-2xl p-8 text-center">
-                <p className="text-zinc-600 font-medium">No consultation records yet.</p>
-              </div>
-            ) : (
-              consultationsSorted.map((cr) => (
-                <div key={cr.id} className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                        Date
-                      </p>
-                      <p className="font-bold text-zinc-900">{formatISODate(cr.date)}</p>
+      <div className="flex-1 overflow-y-auto p-5">
+        {loading ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+        ) : (
+          <>
+            {/* General Data */}
+            {activeTab === 'general' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    ['Patient Name', patient.full_name],
+                    ['Age / Gender', `${patient.age || '—'} / ${patient.gender || '—'}`],
+                    ['Date of Birth', patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : '—'],
+                    ['Civil Status', patient.civil_status || '—'],
+                    ['Contact Number', patient.contact_number || '—'],
+                    ['Occupation', patient.occupation || '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="bg-zinc-50 rounded-xl p-3">
+                      <p className="text-xs text-zinc-500 mb-0.5">{label}</p>
+                      <p className="text-sm font-medium text-zinc-900">{value}</p>
                     </div>
-                    <div>
-                      {cr.reviewed ? (
-                        <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md uppercase">
-                          Reviewed
-                        </span>
-                      ) : (
-                        <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-md uppercase">
-                          Needs Review
-                        </span>
-                      )}
+                  ))}
+                </div>
+                <div className="bg-zinc-50 rounded-xl p-3">
+                  <p className="text-xs text-zinc-500 mb-0.5">Address</p>
+                  <p className="text-sm font-medium text-zinc-900">{patient.address || '—'}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-xl p-3">
+                  <p className="text-xs text-zinc-500 mb-0.5">Referred By</p>
+                  <p className="text-sm font-medium text-zinc-900">{patient.referred_by || '—'}</p>
+                </div>
+                {patient.privacy_consent_at && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 rounded-xl p-3">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Consent signed {new Date(patient.privacy_consent_at).toLocaleDateString()}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Medical History */}
+            {activeTab === 'history' && mh && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="border border-zinc-200 rounded-xl p-4">
+                  <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-3">Past Medical History</h4>
+                  <div className="space-y-1.5">
+                    {Object.entries(mh.past_medical || {}).map(([key, val]: any) => (
+                      <div key={key}>
+                        <div className={`flex items-center gap-2 text-xs ${val.checked ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val.checked ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                            {val.checked && <span className="text-white text-[8px]">✓</span>}
+                          </span>
+                          {pmLabels[key] || key}
+                        </div>
+                        {val.checked && val.notes && <p className="text-xs text-zinc-500 ml-5 mt-0.5">{val.notes}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="border border-zinc-200 rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">Maintenance Medications</h4>
+                    <p className="text-xs text-zinc-700 whitespace-pre-wrap">{mh.maintenance_medications_text || '—'}</p>
+                    {mh.maintenance_medications_image_path && (
+                      <img src={`/${mh.maintenance_medications_image_path}`} alt="Medication" className="mt-2 rounded-lg max-h-32 object-contain" />
+                    )}
+                  </div>
+                  <div className="border border-zinc-200 rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">Travel History</h4>
+                    <p className="text-xs text-zinc-700 whitespace-pre-wrap">{mh.travel_history || '—'}</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="border border-zinc-200 rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-3">Personal / Social History</h4>
+                    <div className="space-y-1.5">
+                      {Object.entries(mh.personal_social_history || {}).map(([key, val]: any) => (
+                        <div key={key} className={`flex items-center gap-2 text-xs ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                            {val && <span className="text-white text-[8px]">✓</span>}
+                          </span>
+                          {psLabels[key] || key}
+                        </div>
+                      ))}
                     </div>
                   </div>
-
-                  {cr.subjective_clinical_findings && (
-                    <div className="mt-3">
-                      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Findings</p>
-                      <p className="text-sm text-zinc-800 whitespace-pre-wrap">{cr.subjective_clinical_findings}</p>
+                  <div className="border border-zinc-200 rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-3">Family History</h4>
+                    <div className="space-y-1.5">
+                      {Object.entries(mh.family_history || {}).map(([key, val]: any) => (
+                        <div key={key} className={`flex items-center gap-2 text-xs ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                            {val && <span className="text-white text-[8px]">✓</span>}
+                          </span>
+                          {fhLabels[key] || key}
+                        </div>
+                      ))}
                     </div>
-                  )}
-
-                  {cr.assessment_plan && (
-                    <div className="mt-3">
-                      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Assessment / Plan</p>
-                      <p className="text-sm text-zinc-800 whitespace-pre-wrap">{cr.assessment_plan}</p>
-                    </div>
-                  )}
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {!isLoading && !error && data && activeTab === 'charts' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <h3 className="text-lg font-bold flex items-center gap-2 text-zinc-900">
-                <ImageIcon className="w-5 h-5 text-emerald-500" />
-                Chart Images
-              </h3>
-
-              <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold shadow-sm cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*,.pdf"
-                  disabled={isUploadingChart}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleChartUpload(f);
-                    // Allow selecting same file again.
-                    e.currentTarget.value = '';
-                  }}
-                />
-                {isUploadingChart ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Upload Chart'}
-              </label>
-            </div>
-
-            {uploadError && (
-              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-800 text-sm">
-                {uploadError}
               </div>
             )}
 
-            {chartImagesSorted.length === 0 ? (
-              <div className="bg-white border border-dashed border-zinc-300 rounded-2xl p-8 text-center">
-                <p className="text-zinc-600 font-medium">No chart images uploaded yet.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {chartImagesSorted.map((img) => {
-                  const url = toUploadUrl(img.file_path);
-                  const isImage = (img.file_type || '').startsWith('image/');
+            {/* Consultations */}
+            {activeTab === 'consultations' && (
+              <ConsultationTable
+                records={fullData?.consultation_records || []}
+                token={token}
+                patientId={patient.id}
+                role={role}
+                onRefresh={loadData}
+              />
+            )}
 
-                  return (
-                    <div key={img.id} className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
-                      <div className="bg-zinc-50 p-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-zinc-900 truncate">
-                            {img.file_type || 'file'}
-                          </p>
-                          <p className="text-xs text-zinc-500 mt-1">
-                            Uploaded {formatISODate(img.uploaded_at)}
-                          </p>
+            {/* Chart Images */}
+            {activeTab === 'charts' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-zinc-700">Physical Chart Images</h3>
+                  <label className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs cursor-pointer transition-colors">
+                    {uploadingChart ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    Upload Chart
+                    <input type="file" accept="image/jpeg,image/png,application/pdf" className="hidden" onChange={handleChartImageUpload} disabled={uploadingChart} />
+                  </label>
+                </div>
+                {chartUploadError && <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">{chartUploadError}</div>}
+                {chartImages.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-400 text-sm">No chart images uploaded yet</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {chartImages.map(ci => (
+                      <a key={ci.id} href={`/${ci.file_path}`} target="_blank" rel="noopener noreferrer"
+                        className="border border-zinc-200 rounded-xl p-3 hover:border-emerald-300 transition-colors">
+                        <div className="flex items-center gap-2">
+                          {ci.file_type === 'application/pdf' ? <FileText className="w-8 h-8 text-red-400" /> : <Image className="w-8 h-8 text-blue-400" />}
+                          <div>
+                            <p className="text-xs font-medium text-zinc-700">{ci.file_type === 'application/pdf' ? 'PDF' : 'Image'}</p>
+                            <p className="text-xs text-zinc-400">{new Date(ci.uploaded_at).toLocaleDateString()}</p>
+                          </div>
                         </div>
-                        <span className="text-xs font-bold text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-md uppercase shrink-0">
-                          {isImage ? 'Image' : 'PDF'}
-                        </span>
-                      </div>
-
-                      {isImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={url} alt="Chart preview" className="w-full h-48 object-cover bg-zinc-100" />
-                      ) : (
-                        <div className="w-full h-48 bg-zinc-100 flex items-center justify-center">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-emerald-700 font-semibold hover:underline"
-                          >
-                            Open document
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
   );
 }
-
