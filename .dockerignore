@@ -3,7 +3,7 @@ node_modules/
 npm-debug.log
 yarn-error.log
 
-# Environment files
+# Environment files (use docker-compose env vars instead)
 .env
 .env.local
 .env.*.local
@@ -31,6 +31,8 @@ Thumbs.db
 # Logs
 logs/
 *.log
+webapp.log
+ocr_service.log
 
 # Temporary files
 .tmp/
@@ -40,16 +42,13 @@ temp/
 # Test files
 coverage/
 .nyc_output/
+test_chart.png
+generate_test_chart.py
 
-# Documentation (not needed in container)
-*.md
-!README.md
+# Backup folders
+backup_before_*/
 
-# Supabase local
-supabase/.branches/
-supabase/.temp/
-
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -57,10 +56,18 @@ __pycache__/
 venv/
 ENV/
 
-# Kiro
+# Kiro spec files (not needed in container)
 .kiro/
 
 # Google credentials
 google JSON/
 credentials.json
 token.json
+
+# PID files
+.ocr_pid
+.webapp_pid
+.ollama_pid
+
+# Uploaded files (mounted as volume in docker-compose)
+uploads/

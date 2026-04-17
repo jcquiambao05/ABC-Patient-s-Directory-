@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ABC Patient Directory AI - Start Script
-# Starts OCR service and web application
+# Starts OCR service, Ollama (llama3.2), and web application
 
-echo "🏥 Starting ABC Patient Directory..."
+echo "Starting ABCare Clinic Management..."
 
 # Colors
 GREEN='\033[0;32m'
@@ -19,6 +19,49 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 check_port() {
     lsof -i:$1 > /dev/null 2>&1
 }
+
+# ── Step 1: Check Ollama ───────────────────────────────────────────────────
+echo ""
+echo -e "${BLUE}🤖 Checking Ollama (llama3.2)...${NC}"
+
+if ! command -v ollama &> /dev/null; then
+    echo -e "${RED}❌ Ollama not installed. Install from https://ollama.com${NC}"
+    echo -e "${YELLOW}⚠️  Chatbot will be unavailable but the rest of the app will work.${NC}"
+else
+    # Check if Ollama API is already responding
+    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Ollama is already running${NC}"
+    else
+        echo -e "${BLUE}   Starting Ollama service...${NC}"
+        ollama serve > /dev/null 2>&1 &
+        OLLAMA_PID=$!
+        echo $OLLAMA_PID > "$SCRIPT_DIR/.ollama_pid"
+        # Wait up to 10 seconds for Ollama to be ready
+        for i in {1..10}; do
+            sleep 1
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ Ollama started (PID: $OLLAMA_PID)${NC}"
+                break
+            fi
+            if [ $i -eq 10 ]; then
+                echo -e "${YELLOW}⚠️  Ollama took too long to start. Chatbot may be unavailable.${NC}"
+            fi
+        done
+    fi
+
+    # Check if llama3.2 model is available
+    if ollama list 2>/dev/null | grep -q "llama3.2"; then
+        echo -e "${GREEN}✅ llama3.2 model is available${NC}"
+    else
+        echo -e "${YELLOW}⚠️  llama3.2 not found. Pulling now (2GB download)...${NC}"
+        ollama pull llama3.2
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✅ llama3.2 downloaded successfully${NC}"
+        else
+            echo -e "${RED}❌ Failed to pull llama3.2. Chatbot will be unavailable.${NC}"
+        fi
+    fi
+fi
 
 # Check if OCR service file exists in current directory
 if [ ! -f "$SCRIPT_DIR/ocr_service_simple.py" ]; then
@@ -139,28 +182,21 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}🎉 ABC Patient Directory is ready!${NC}"
+echo -e "${GREEN} ABCare Clinic Management is ready!${NC}"
 echo ""
-echo "📍 Access Points:"
-echo "   🌐 Web App: http://localhost:3000"
-echo "   🔧 OCR Service: http://localhost:5000"
+echo " Access Points:"
+echo "    Web App:      http://localhost:3000"
+echo "    OCR Service:  http://localhost:5000"
+echo "    Ollama API:   http://localhost:11434"
 echo ""
-echo "🔐 Default Login:"
-echo "   Email: admin@mediflow.ai"
-echo "   Password: Admin@123456"
-echo ""
-echo "📊 Process IDs:"
+echo "Process IDs:"
 echo "   OCR Service: $OCR_PID (saved to .ocr_pid)"
 echo "   Web App: $WEBAPP_PID (saved to .webapp_pid)"
 echo ""
-echo "📝 Logs:"
+echo " Logs:"
 echo "   OCR: tail -f ocr_service.log"
 echo "   Web: tail -f webapp.log"
 echo ""
-echo "🛑 Stop: ./stop-mediflow.sh"
-echo "🔄 Restart: ./restart-mediflow.sh"
-echo ""
-echo "📚 Documentation:"
-echo "   - OCR-EXTRACTION-FIX-COMPLETE.md"
-echo "   - SYSTEM-STATUS-CHECK.md"
+echo " Stop: ./stop-mediflow.sh"
+echo " Restart: ./restart-mediflow.sh"
 echo ""

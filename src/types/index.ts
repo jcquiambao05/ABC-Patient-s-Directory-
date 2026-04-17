@@ -34,6 +34,7 @@ export interface PersonalSocialJSON {
   alcohol_intake: boolean;
   exposures: boolean;
   others: boolean;
+  others_notes?: string;
 }
 
 export interface FamilyHistoryJSON {
@@ -42,6 +43,7 @@ export interface FamilyHistoryJSON {
   bronchial_asthma: boolean;
   cancer: boolean;
   others: boolean;
+  others_notes?: string;
 }
 
 export interface PatientMedicalHistory {

@@ -21,11 +21,38 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface LoginProps {
   onLoginSuccess: (token: string) => void;
+  onShowSignup: () => void;
 }
 
-type PasswordStrength = 'weak' | 'medium' | 'strong';
+// PasswordStrength type moved to SignupPage where it belongs
 
-export default function Login({ onLoginSuccess }: LoginProps) {
+// Small component that checks slot availability and shows signup link
+function SignupLink() {
+  const [open, setOpen] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    fetch('/api/auth/signup-availability')
+      .then(r => r.json())
+      .then(d => setOpen(d.registration_open))
+      .catch(() => setOpen(false));
+  }, []);
+  if (!open) return null;
+  return (
+    <p className="text-zinc-500 text-sm">
+      New to ABCare?{' '}
+      <button
+        onClick={() => {
+          // Trigger signup via parent — we use a custom event since this is a sub-component
+          window.dispatchEvent(new CustomEvent('abccare:show-signup'));
+        }}
+        className="text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+      >
+        Create an account
+      </button>
+    </p>
+  );
+}
+
+export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [mode, setMode] = useState<'login' | 'forgot' | 'mfa'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -69,40 +96,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   }, [onLoginSuccess]);
 
-  // Password strength calculation
-  const calculatePasswordStrength = (pwd: string): PasswordStrength => {
-    if (pwd.length < 8) return 'weak';
-    
-    let strength = 0;
-    if (pwd.length >= 12) strength++;
-    if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) strength++;
-    if (/\d/.test(pwd)) strength++;
-    if (/[^a-zA-Z0-9]/.test(pwd)) strength++;
-    
-    if (strength >= 3) return 'strong';
-    if (strength >= 2) return 'medium';
-    return 'weak';
-  };
-
-  const passwordStrength = password ? calculatePasswordStrength(password) : null;
-
-  const getStrengthColor = (strength: PasswordStrength | null) => {
-    if (!strength) return 'bg-zinc-200';
-    switch (strength) {
-      case 'weak': return 'bg-red-500';
-      case 'medium': return 'bg-yellow-500';
-      case 'strong': return 'bg-emerald-500';
-    }
-  };
-
-  const getStrengthText = (strength: PasswordStrength | null) => {
-    if (!strength) return '';
-    switch (strength) {
-      case 'weak': return 'Weak Password';
-      case 'medium': return 'Medium Strength';
-      case 'strong': return 'Strong Password';
-    }
-  };
+  // Password strength calculation removed from login — only used in signup
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,23 +276,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       </button>
                     </div>
 
-                    {/* Password Strength Indicator */}
-                    {password && (
-                      <div className="space-y-2 pt-2">
-                        <div className="flex gap-1.5">
-                          <div className={`h-1.5 flex-1 rounded-full transition-all ${passwordStrength ? getStrengthColor(passwordStrength) : 'bg-zinc-700'}`} />
-                          <div className={`h-1.5 flex-1 rounded-full transition-all ${passwordStrength && passwordStrength !== 'weak' ? getStrengthColor(passwordStrength) : 'bg-zinc-700'}`} />
-                          <div className={`h-1.5 flex-1 rounded-full transition-all ${passwordStrength === 'strong' ? getStrengthColor(passwordStrength) : 'bg-zinc-700'}`} />
-                        </div>
-                        <p className={`text-xs font-semibold ${
-                          passwordStrength === 'weak' ? 'text-red-400' :
-                          passwordStrength === 'medium' ? 'text-yellow-400' :
-                          'text-emerald-400'
-                        }`}>
-                          {getStrengthText(passwordStrength)}
-                        </p>
-                      </div>
-                    )}
+                    {/* Password Strength Indicator removed — login does not need this */}
                   </div>
 
                   {/* Forgot Password Link */}
@@ -500,9 +478,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-zinc-500 text-sm mt-6">
-          Protected by enterprise-grade security
-        </p>
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-zinc-500 text-sm">Protected by enterprise-grade security</p>
+          {mode === 'login' && (
+            <SignupLink />
+          )}
+        </div>
       </motion.div>
     </div>
   );

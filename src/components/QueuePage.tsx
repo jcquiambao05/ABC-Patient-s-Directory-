@@ -1,7 +1,11 @@
+2
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Loader2, ListOrdered, UserCheck, ClipboardList, Eye, X } from 'lucide-react';
+import { Search, Loader2, ListOrdered, UserCheck, ClipboardList, Eye, X, UserPlus, Upload } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../lib/api';
 import DetailPanel from './DetailPanel';
+import AddPatientModal from './AddPatientModal';
+import AIUploadPreviewModal from './AIUploadPreviewModal';
 import type { Patient, QueueEntry } from '../types/index';
 
 interface Props {
@@ -18,6 +22,8 @@ export default function QueuePage({ token, role }: Props) {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [viewPatientData, setViewPatientData] = useState<any>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [showAddPatient, setShowAddPatient] = useState(false);
+  const [showAIUpload, setShowAIUpload] = useState(false);
 
   const loadQueue = useCallback(async () => {
     try {
@@ -32,6 +38,20 @@ export default function QueuePage({ token, role }: Props) {
   const addToQueue = async (patientId: string) => {
     try { await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, token); loadQueue(); }
     catch (err) { alert((err as Error).message); }
+  };
+
+  const handleNewPatientSaved = async () => {
+    // Reload patients, then find the newest one and add to queue
+    try {
+      const updated: Patient[] = await api('/api/patients', {}, token);
+      setPatients(updated);
+      if (updated.length > 0) {
+        const newest = updated[0]; // ordered by created_at DESC
+        await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: newest.id }) }, token);
+        await loadQueue();
+      }
+    } catch (err) { console.error(err); }
+    setShowAddPatient(false);
   };
 
   const callNext = async () => {
@@ -90,26 +110,38 @@ export default function QueuePage({ token, role }: Props) {
     <div className="flex-1 flex overflow-hidden bg-zinc-50">
       {/* Staff: patient search panel */}
       {role === 'staff' && (
-        <div className="w-72 bg-white border-r border-zinc-200 flex flex-col">
-          <div className="p-4 border-b border-zinc-100">
-            <h2 className="font-bold text-zinc-900 mb-3">Add to Queue</h2>
+        <div className="w-96 bg-white border-r border-zinc-200 flex flex-col">
+          <div className="p-5 border-b border-zinc-100">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-lg text-zinc-900">Add to Queue</h2>
+              <div className="flex gap-2">
+                <button onClick={() => setShowAIUpload(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium">
+                  <Upload className="w-4 h-4" /> AI Upload
+                </button>
+                <button onClick={() => setShowAddPatient(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium">
+                  <UserPlus className="w-4 h-4" /> New Patient
+                </button>
+              </div>
+            </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patients..."
-                className="w-full pl-9 pr-3 py-2 bg-zinc-100 rounded-xl text-sm outline-none" />
+                className="w-full pl-10 pr-3 py-3 bg-zinc-100 rounded-xl text-base outline-none" />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-zinc-100">
             {filtered.map(p => {
               const inQueue = queue.some(q => q.patient_id === p.id);
               return (
-                <div key={p.id} className="p-3 flex items-center gap-3 hover:bg-zinc-50">
-                  <div className="w-8 h-8 rounded-xl bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
+                <div key={p.id} className="p-4 flex items-center gap-3 hover:bg-zinc-50">
+                  <div className="w-10 h-10 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
                     {p.profile_photo_path ? <img src={`/${p.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : p.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
-                  <span className="flex-1 text-sm text-zinc-800 truncate">{p.full_name}</span>
+                  <span className="flex-1 text-base text-zinc-800 truncate">{p.full_name}</span>
                   <button onClick={() => addToQueue(p.id)} disabled={inQueue}
-                    className={`px-2 py-1 rounded-lg text-xs font-medium ${inQueue ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium ${inQueue ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
                     {inQueue ? 'Added' : '+ Add'}
                   </button>
                 </div>
@@ -123,22 +155,22 @@ export default function QueuePage({ token, role }: Props) {
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="p-5 border-b border-zinc-200 bg-white flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-zinc-900">Today's Queue</h1>
-            <p className="text-sm text-zinc-500">{queue.filter(q => q.status !== 'done').length} active · {queue.filter(q => q.status === 'done').length} done</p>
+            <h1 className="text-2xl font-bold text-zinc-900">Today's Queue</h1>
+            <p className="text-base text-zinc-500">{queue.filter(q => q.status !== 'done').length} active · {queue.filter(q => q.status === 'done').length} done</p>
           </div>
           <div className="flex gap-2">
             {role === 'admin' && (
               <>
-                <button onClick={callNext} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-medium flex items-center gap-2">
+                <button onClick={callNext} className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-base font-medium flex items-center gap-2">
                   <UserCheck className="w-4 h-4" /> Call Next
                 </button>
-                <button onClick={() => setResetConfirm(true)} className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl text-sm font-medium">
+                <button onClick={() => setResetConfirm(true)} className="px-5 py-2.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl text-base font-medium">
                   Reset Queue
                 </button>
               </>
             )}
             {role === 'staff' && (
-              <button onClick={archiveDay} className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl text-sm font-medium flex items-center gap-2">
+              <button onClick={archiveDay} className="px-5 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-xl text-base font-medium flex items-center gap-2">
                 <ClipboardList className="w-4 h-4" /> Archive Day
               </button>
             )}
@@ -162,24 +194,46 @@ export default function QueuePage({ token, role }: Props) {
                   onDragStart={() => setDragId(entry.id)}
                   onDragOver={e => e.preventDefault()}
                   onDrop={() => handleDrop(entry.id)}
-                  className={`bg-white border border-zinc-200 rounded-xl p-4 flex items-center gap-4 transition-all ${role === 'staff' ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === entry.id ? 'opacity-50' : ''}`}>
-                  <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0">{entry.position}</div>
-                  <div className="w-9 h-9 rounded-xl bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
+                  onDoubleClick={() => openPatientRecord(entry.patient_id)}
+                  title="Double-click to view patient record"
+                  className={`bg-white border border-zinc-200 rounded-xl py-5 px-6 flex items-center gap-5 transition-all ${role === 'staff' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${dragId === entry.id ? 'opacity-50' : ''}`}>
+                  <div className="w-11 h-11 rounded-full bg-zinc-100 flex items-center justify-center text-base font-bold text-zinc-600 flex-shrink-0">{entry.position}</div>
+                  <div className="w-12 h-12 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
                     {entry.profile_photo_path ? <img src={`/${entry.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : entry.patient_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-zinc-900 truncate">{entry.patient_name}</p>
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium mt-0.5 ${statusColors[entry.status]}`}>{statusLabels[entry.status]}</span>
+                  <div className="flex-1 min-w-0 flex items-center gap-3">
+                    <p className="font-semibold text-lg text-zinc-900 truncate">{entry.patient_name}</p>
+                    <AnimatePresence mode="wait">
+                      <motion.span
+                        key={entry.status}
+                        initial={{ opacity: 0, scale: 0.85 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.85 }}
+                        transition={{ duration: 0.18 }}
+                        className={`inline-block px-3 py-1 rounded-full text-sm font-medium flex-shrink-0 ${statusColors[entry.status]}`}>
+                        {statusLabels[entry.status]}
+                      </motion.span>
+                    </AnimatePresence>
+                    {entry.status !== 'done' && (
+                      <span className="text-xs text-zinc-400 flex-shrink-0">
+                        {(() => {
+                          const mins = Math.floor((Date.now() - new Date(entry.created_at).getTime()) / 60000);
+                          if (mins < 1) return 'just added';
+                          if (mins < 60) return `${mins}m waiting`;
+                          return `${Math.floor(mins/60)}h ${mins%60}m waiting`;
+                        })()}
+                      </span>
+                    )}
                   </div>
                   <input defaultValue={entry.remarks || ''} onBlur={e => updateRemarks(entry.id, e.target.value)}
-                    placeholder="Remarks..." className="w-32 px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs outline-none focus:border-emerald-400" />
+                    placeholder="Remarks..." className="w-48 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" onClick={e => e.stopPropagation()} />
                   {role === 'admin' && (
                     <div className="flex gap-2 flex-shrink-0">
-                      <button onClick={() => openPatientRecord(entry.patient_id)} className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600" title="View record">
-                        <Eye className="w-4 h-4" />
+                      <button onClick={() => openPatientRecord(entry.patient_id)} className="p-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600" title="View record">
+                        <Eye className="w-5 h-5" />
                       </button>
                       {entry.status === 'in_consultation' && (
-                        <button onClick={() => setDoneConfirm(entry.id)} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium">Done</button>
+                        <button onClick={() => setDoneConfirm(entry.id)} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-base font-medium">Done</button>
                       )}
                     </div>
                   )}
@@ -218,7 +272,7 @@ export default function QueuePage({ token, role }: Props) {
         </div>
       )}
 
-      {/* Patient record modal (doctor view) */}
+      {/* Patient record modal (doctor/staff double-click view) */}
       {viewPatientData && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -231,6 +285,30 @@ export default function QueuePage({ token, role }: Props) {
             </div>
           </div>
         </div>
+      )}
+      {showAddPatient && (
+        <AddPatientModal
+          token={token}
+          onClose={() => setShowAddPatient(false)}
+          onSaved={handleNewPatientSaved}
+        />
+      )}
+
+      {showAIUpload && (
+        <AIUploadPreviewModal
+          token={token}
+          onClose={() => setShowAIUpload(false)}
+          onSaved={async (patientId) => {
+            setShowAIUpload(false);
+            // Reload patients and auto-add new patient to queue
+            try {
+              const updated: Patient[] = await api('/api/patients', {}, token);
+              setPatients(updated);
+              await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, token);
+              await loadQueue();
+            } catch (err) { console.error(err); }
+          }}
+        />
       )}
     </div>
   );

@@ -13,6 +13,62 @@
   }
 }
 
+/* ── Font size scaling ─────────────────────────────────────────────────── */
+html.font-normal { font-size: 14px; }
+html.font-large  { font-size: 16px; }
+html.font-xlarge { font-size: 18px; }
+
+/* ── Theme: Light (default) ────────────────────────────────────────────── */
+html[data-theme="light"] body {
+  background-color: #fafafa;
+  color: #18181b;
+}
+
+/* ── Theme: Dark ───────────────────────────────────────────────────────── */
+html[data-theme="dark"] body {
+  background-color: #18181d;
+  color: #e4e4e7;
+}
+
+html[data-theme="dark"] .bg-white { background-color: #222228 !important; }
+html[data-theme="dark"] .bg-zinc-50 { background-color: #18181d !important; }
+html[data-theme="dark"] .bg-zinc-100 { background-color: #2a2a31 !important; }
+html[data-theme="dark"] .bg-zinc-100\/90 { background-color: rgba(42,42,49,0.92) !important; }
+html[data-theme="dark"] .text-zinc-900 { color: #f0f0f2 !important; }
+html[data-theme="dark"] .text-zinc-800 { color: #e4e4e7 !important; }
+html[data-theme="dark"] .text-zinc-700 { color: #d1d1d6 !important; }
+html[data-theme="dark"] .text-zinc-600 { color: #b8b8c0 !important; }
+html[data-theme="dark"] .text-zinc-500 { color: #8e8e99 !important; }
+html[data-theme="dark"] .text-zinc-400 { color: #72727d !important; }
+html[data-theme="dark"] .border-zinc-200 { border-color: #3a3a42 !important; }
+html[data-theme="dark"] .border-zinc-100 { border-color: #2e2e35 !important; }
+
+/* Cabinet label in dark mode — softer, not harsh white */
+html[data-theme="dark"] .text-zinc-500.uppercase { color: #7a7a85 !important; }
+
+/* Archive Day button — muted grey, not bright white */
+html[data-theme="dark"] .bg-zinc-200 { background-color: #35353d !important; }
+html[data-theme="dark"] .hover\:bg-zinc-300:hover { background-color: #3f3f48 !important; }
+html[data-theme="dark"] .text-zinc-700 { color: #c0c0c8 !important; }
+
+/* Chat bubbles — ensure model messages are readable */
+html[data-theme="dark"] .border-zinc-200.text-zinc-800 { 
+  background-color: #2e2e35 !important;
+  color: #e4e4e7 !important;
+  border-color: #3a3a42 !important;
+}
+
+/* ── High Contrast ─────────────────────────────────────────────────────── */
+html[data-theme="high-contrast"] body {
+  background-color: #000000;
+  color: #ffffff;
+}
+html[data-theme="high-contrast"] .bg-white { background-color: #000 !important; }
+html[data-theme="high-contrast"] .bg-zinc-50 { background-color: #000 !important; }
+html[data-theme="high-contrast"] .text-zinc-900 { color: #fff !important; }
+html[data-theme="high-contrast"] .text-zinc-500 { color: #ffff00 !important; }
+html[data-theme="high-contrast"] .border-zinc-200 { border-color: #fff !important; }
+
 .markdown-body {
   @apply text-zinc-700 leading-relaxed;
 }
@@ -27,4 +83,35 @@
 
 .markdown-body ul {
   @apply list-disc pl-5 mb-4;
+}
+
+/* ── Print styles — clean patient record output ────────────────────────── */
+@media print {
+  /* Hide everything except the detail panel content */
+  body > * { display: none !important; }
+  .fixed, nav, aside { display: none !important; }
+
+  /* Show only the detail panel */
+  [class*="DetailPanel"], .detail-panel-print {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Hide action buttons and sidebar in print */
+  button, .no-print { display: none !important; }
+
+  /* Clean typography for print */
+  body { font-size: 12px; color: #000; background: #fff; }
+  h1, h2, h3 { color: #000; }
+  .bg-zinc-50, .bg-white, .bg-zinc-100 { background: #fff !important; }
+  .text-zinc-400, .text-zinc-500 { color: #555 !important; }
+  .border-zinc-200, .border-zinc-100 { border-color: #ccc !important; }
+
+  /* Page breaks */
+  .page-break { page-break-before: always; }
 }

@@ -1,5 +1,5 @@
 # ============================================
-# ABC Patient Directory AI - Comprehensive .gitignore
+# MediFlow AI - Comprehensive .gitignore
 # ============================================
 # This file prevents sensitive data from being committed to GitHub
 # CRITICAL: Review before pushing to ensure no secrets are exposed
@@ -247,13 +247,13 @@ ocr-results/
 processed-documents/
 
 # ============================================
-# 🔧 KIRO AI ASSISTANT
+#  KIRO AI ASSISTANT
 # ============================================
 .kiro/
 .kiro-cache/
 
 # ============================================
-# 📚 DOCUMENTATION (SENSITIVE)
+#  DOCUMENTATION (SENSITIVE)
 # ============================================
 # Files with sensitive information
 PRIVATE*.md
@@ -267,7 +267,7 @@ TODO-private.md
 PASSWORDS.md
 
 # ============================================
-# 🎯 PROJECT-SPECIFIC
+#  PROJECT-SPECIFIC
 # ============================================
 # Execution scripts with hardcoded credentials
 execution/*.py.local

@@ -126,6 +126,89 @@ def normalize_date(date_str):
     
     # If all formats fail, return None
     return None
+def is_valid_patient_name(value):
+    """
+    Validate if extracted value is a real patient name.
+    Returns (is_valid, reason) tuple for debugging.
+    """
+    if not value or not value.strip():
+        return False, "empty value"
+
+    value = value.strip()
+    value_lower = value.lower()
+
+    # List of invalid patterns and values
+    INVALID_EXACT_MATCHES = [
+        'n/a', 'na', 'none', 'unknown', 'patient', 'name', 'gender',
+        'male', 'female', 'patient, n/a', 'patient n/a', 'patient,n/a'
+    ]
+
+    INVALID_WORDS = [
+        'patient', 'name', 'gender', 'male', 'female', 'address', 'phone',
+        'email', 'date', 'dob', 'admit', 'chief', 'complaint', 'history',
+        'exam', 'assessment', 'plan', 'diagnosis', 'treatment', 'notes',
+        'information', 'contact', 'emergency', 'insurance', 'provider',
+        'medical', 'chart', 'record', 'hospital', 'clinic', 'health'
+    ]
+
+    # Check 1: Exact match against invalid values
+    if value_lower in INVALID_EXACT_MATCHES:
+        return False, f"exact match: '{value_lower}'"
+
+    # Check 2: Contains "n/a" anywhere
+    if 'n/a' in value_lower or 'n / a' in value_lower:
+        return False, "contains n/a"
+
+    # Check 3: Contains form field indicators
+    if any(indicator in value for indicator in [':', '|', '_____', '___', '...']):
+        return False, "contains form indicators"
+
+    # Check 4: Must have at least 2 words (first and last name)
+    words = value.split()
+    if len(words) < 2:
+        return False, f"only {len(words)} word(s)"
+
+    # Check 5: Check if first word is an invalid word (like "Patient" or "Gender")
+    first_word = words[0].lower()
+    if first_word in INVALID_WORDS:
+        return False, f"first word is invalid: '{first_word}'"
+
+    # Check 6: Check if any word is "n/a" or similar
+    for word in words:
+        word_clean = word.lower().strip(',.')
+        if word_clean in ['n/a', 'na', 'none', 'unknown']:
+            return False, f"contains invalid word: '{word_clean}'"
+
+    # Check 7: Must start with capital letter (proper name format)
+    if not value[0].isupper():
+        return False, "doesn't start with capital"
+
+    # Check 8: Each word should start with capital (proper name format)
+    # Allow for middle initials and suffixes like "Jr.", "Sr.", "III"
+    for word in words:
+        if len(word) > 0 and word not in ['Jr.', 'Sr.', 'II', 'III', 'IV']:
+            if not word[0].isupper():
+                return False, f"word '{word}' not capitalized"
+
+    # Check 9: Must contain only letters, spaces, hyphens, apostrophes, and periods
+    # This filters out things like "Patient, N/A" (has comma)
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ -'.")
+    if not all(c in allowed_chars for c in value):
+        invalid_chars = [c for c in value if c not in allowed_chars]
+        return False, f"contains invalid characters: {invalid_chars}"
+
+    # Check 10: Name shouldn't be too long (likely extracted wrong)
+    if len(value) > 50:
+        return False, f"too long ({len(value)} chars)"
+
+    # Check 11: Each word should be reasonable length (2-20 chars)
+    for word in words:
+        word_clean = word.strip('.,')
+        if len(word_clean) < 2 or len(word_clean) > 20:
+            return False, f"word '{word}' has unusual length"
+
+    return True, "valid"
+
 
 def extract_with_patterns(text, extraction_rules):
     """Extract structured data using regex patterns"""

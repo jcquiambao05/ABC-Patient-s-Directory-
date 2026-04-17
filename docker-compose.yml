@@ -1,57 +1,97 @@
 version: '3.8'
 
+# ABCare OmniFlow — Full Stack Docker Compose
+# Usage:
+#   1. Copy .env.example to .env and fill in your values
+#   2. docker compose up -d
+#   3. Run migrations: docker compose exec app node -e "require('./database/run-migrations')"
+#   4. Access at http://localhost:3000
+
 services:
-  # PostgreSQL Database
+
+  # ── PostgreSQL Database ──────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
-    container_name: mediflow-postgres
+    container_name: abccare-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mediflow
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Auto-run schema on first start
       - ./database/auth_schema.sql:/docker-entrypoint-initdb.d/01-auth_schema.sql
+      - ./database/abc_clinic_migration.sql:/docker-entrypoint-initdb.d/02-abc_clinic_migration.sql
+      - ./database/audit_logs_migration.sql:/docker-entrypoint-initdb.d/03-audit_logs_migration.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # MediFlow AI Application
+  # ── Ollama (Local AI — llava for vision, llama3.2 for chat) ─────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: abccare-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Pull required models on first start
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull llama3.2 && ollama pull llava && wait"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ── ABCare Web Application ───────────────────────────────────────────────
   app:
     build: .
-    container_name: mediflow-app
+    container_name: abccare-app
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mediflow
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      OLLAMA_HOST: http://ollama:11434
+      DEFAULT_MODEL: llama3.2
+      VISION_MODEL: llava
       JWT_SECRET: ${JWT_SECRET}
       SESSION_SECRET: ${SESSION_SECRET}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
-      GOOGLE_ALLOWED_EMAILS: ${GOOGLE_ALLOWED_EMAILS}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:3000/api/auth/google/callback}
+      GOOGLE_ALLOWED_EMAILS: ${GOOGLE_ALLOWED_EMAILS:-}
+    volumes:
+      # Persist uploaded files across container restarts
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
 volumes:
   postgres_data:
     driver: local
+  ollama_data:
+    driver: local
+  uploads_data:
+    driver: local
 
 networks:
   default:
-    name: mediflow-network
+    name: abccare-network

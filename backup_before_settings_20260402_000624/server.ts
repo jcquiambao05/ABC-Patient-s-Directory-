@@ -27,7 +27,7 @@ function generateTimestampFilename(ext: string): string {
 
 function getExt(mimetype: string): string {
   const map: Record<string, string> = {
-    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+    'image/jpeg': 'jpg', 'image/png': 'png',
     'application/pdf': 'pdf'
   };
   return map[mimetype] || 'bin';
@@ -39,10 +39,10 @@ const makeStorage = (dest: string) => multer.diskStorage({
   filename: (_, file, cb) => cb(null, generateTimestampFilename(getExt(file.mimetype)))
 });
 
-const photoUpload = multer({ storage: makeStorage('uploads/patients'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png','image/webp'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
-const chartUpload = multer({ storage: makeStorage('uploads/charts'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png','image/webp','application/pdf'].includes(f.mimetype)), limits: { fileSize: 20*1024*1024 } });
-const medicationUpload = multer({ storage: makeStorage('uploads/medications'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png','image/webp'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
-const prescriptionUpload = multer({ storage: makeStorage('uploads/prescriptions'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png','image/webp'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
+const photoUpload = multer({ storage: makeStorage('uploads/patients'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
+const chartUpload = multer({ storage: makeStorage('uploads/charts'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png','application/pdf'].includes(f.mimetype)), limits: { fileSize: 20*1024*1024 } });
+const medicationUpload = multer({ storage: makeStorage('uploads/medications'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
+const prescriptionUpload = multer({ storage: makeStorage('uploads/prescriptions'), fileFilter: (_, f, cb) => cb(null, ['image/jpeg','image/png'].includes(f.mimetype)), limits: { fileSize: 10*1024*1024 } });
 
 // ── DB init ────────────────────────────────────────────────────────────────
 const initDb = async () => {
@@ -90,17 +90,6 @@ async function startServer() {
     next();
   };
 
-  // ── Audit log helper ───────────────────────────────────────────────────
-  const logAudit = async (req: express.Request, action: string, entityType: string, entityId: string | null, description: string) => {
-    try {
-      const user = (req as any).user;
-      await pool.query(
-        'INSERT INTO audit_logs (user_id, user_email, action, entity_type, entity_id, description) VALUES ($1,$2,$3,$4,$5,$6)',
-        [user?.userId || 'unknown', user?.email || 'unknown', action, entityType, entityId, description]
-      );
-    } catch { /* never let audit failure break the main operation */ }
-  };
-
   // ── Health ─────────────────────────────────────────────────────────────
   app.get("/api/health", (_, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
@@ -127,8 +116,8 @@ async function startServer() {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
       `, [full_name, age||null, gender||null, date_of_birth||null, civil_status||null, address||null, contact_number||null, occupation||null, referred_by||null]);
       const patient = r.rows[0];
+      // Create empty medical history row
       await pool.query(`INSERT INTO patient_medical_history (patient_id) VALUES ($1)`, [patient.id]);
-      await logAudit(req, 'CREATE', 'patient', patient.id, `Created patient: ${full_name}`);
       res.json(patient);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -152,24 +141,20 @@ async function startServer() {
     try {
       await pool.query(`UPDATE patients SET full_name=$1,age=$2,gender=$3,date_of_birth=$4,civil_status=$5,address=$6,contact_number=$7,occupation=$8,referred_by=$9 WHERE id=$10`,
         [full_name, age||null, gender||null, date_of_birth||null, civil_status||null, address||null, contact_number||null, occupation||null, referred_by||null, req.params.id]);
-      await logAudit(req, 'UPDATE', 'patient', req.params.id, `Updated patient: ${full_name}`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
   app.delete("/api/patients/:id", authenticateToken, requireRole('staff'), async (req, res) => {
     try {
-      const pRes = await pool.query('SELECT full_name FROM patients WHERE id=$1', [req.params.id]);
-      const name = pRes.rows[0]?.full_name || req.params.id;
       await pool.query('DELETE FROM patients WHERE id = $1', [req.params.id]);
-      await logAudit(req, 'DELETE', 'patient', req.params.id, `Deleted patient: ${name}`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
   // ── Profile photo upload ───────────────────────────────────────────────
   app.post("/api/patients/:id/profile-photo", authenticateToken, requireRole('staff'), photoUpload.single('photo'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded or invalid type (JPEG/PNG/WebP only)' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded or invalid type (JPEG/PNG only)' });
     try {
       const filePath = `uploads/patients/${req.file.filename}`;
       await pool.query('UPDATE patients SET profile_photo_path = $1 WHERE id = $2', [filePath, req.params.id]);
@@ -281,7 +266,6 @@ async function startServer() {
         SET reviewed=true, marked_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
         WHERE id=$1
       `, [req.params.id]);
-      await logAudit(req, 'MARK_REVIEWED', 'consultation_record', req.params.id, `Marked consultation record as reviewed`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -289,15 +273,6 @@ async function startServer() {
   app.delete("/api/consultation-records/:id", authenticateToken, requireRole('staff'), async (req, res) => {
     try {
       await pool.query('DELETE FROM consultation_records WHERE id = $1', [req.params.id]);
-      await logAudit(req, 'DELETE', 'consultation_record', req.params.id, `Deleted consultation record`);
-      res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
-  });
-
-  // Doctor notes — admin only, not visible to staff
-  app.patch("/api/consultation-records/:id/doctor-notes", authenticateToken, requireRole('admin'), async (req, res) => {
-    try {
-      await pool.query('UPDATE consultation_records SET doctor_notes=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2', [req.body.doctor_notes || null, req.params.id]);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -347,7 +322,6 @@ async function startServer() {
         INSERT INTO prescriptions (patient_id, type, medication_name, dosage, frequency, duration, instructions, photo_path)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *
       `, [patient_id, type, medication_name||null, dosage||null, frequency||null, duration||null, instructions||null, photoPath]);
-      await logAudit(req, 'CREATE', 'prescription', r.rows[0].id, `Added ${type} prescription for patient ${patient_id}`);
       res.json(r.rows[0]);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -355,7 +329,6 @@ async function startServer() {
   app.delete("/api/prescriptions/:id", authenticateToken, requireRole('admin'), async (req, res) => {
     try {
       await pool.query('DELETE FROM prescriptions WHERE id = $1', [req.params.id]);
-      await logAudit(req, 'DELETE', 'prescription', req.params.id, `Deleted prescription`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -378,9 +351,9 @@ async function startServer() {
     if (!patient_id) return res.status(400).json({ error: 'patient_id is required' });
     try {
       const posRes = await pool.query(`SELECT COALESCE(MAX(position),0)+1 AS next_pos FROM queue WHERE queued_date=CURRENT_DATE AND archived=false`);
-      const r = await pool.query(`INSERT INTO queue (patient_id, position) VALUES ($1,$2) RETURNING *`, [patient_id, posRes.rows[0].next_pos]);
-      const pRes = await pool.query('SELECT full_name FROM patients WHERE id=$1', [patient_id]);
-      await logAudit(req, 'QUEUE_ADD', 'queue', r.rows[0].id, `Added patient "${pRes.rows[0]?.full_name || patient_id}" to queue`);
+      const r = await pool.query(`
+        INSERT INTO queue (patient_id, position) VALUES ($1,$2) RETURNING *
+      `, [patient_id, posRes.rows[0].next_pos]);
       res.json(r.rows[0]);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -424,7 +397,6 @@ async function startServer() {
   app.post("/api/queue/reset", authenticateToken, requireRole('admin'), async (req, res) => {
     try {
       await pool.query("DELETE FROM queue WHERE queued_date=CURRENT_DATE AND archived=false");
-      await logAudit(req, 'QUEUE_RESET', 'queue', null, `Reset today's queue`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -432,7 +404,6 @@ async function startServer() {
   app.post("/api/queue/archive", authenticateToken, requireRole('staff','admin'), async (req, res) => {
     try {
       await pool.query("UPDATE queue SET archived=true, archived_at=NOW() WHERE queued_date=CURRENT_DATE AND archived=false");
-      await logAudit(req, 'QUEUE_ARCHIVE', 'queue', null, `Archived today's queue`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -441,56 +412,32 @@ async function startServer() {
   app.post("/api/patients/ai-extract", authenticateToken, requireRole('staff'), async (req, res) => {
     const { imageData } = req.body;
     if (!imageData) return res.status(400).json({ error: 'Image data is required' });
-
-    const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const VISION_MODEL = process.env.VISION_MODEL || 'llava';
-
-    // Strip data URL prefix if present
-    const base64 = imageData.replace(/^data:image\/\w+;base64,/, '');
-
-    const prompt = `This is a medical patient chart form. Extract the following fields and return ONLY valid JSON with no explanation or markdown:
-{
-  "patient_name": "full name or null",
-  "age": number or null,
-  "gender": "Male or Female or Other or null",
-  "date_of_birth": "YYYY-MM-DD format or null",
-  "civil_status": "Single or Married or Widowed or null",
-  "address": "full address or null",
-  "contact_number": "phone number or null",
-  "occupation": "occupation or null",
-  "referred_by": "referring person or null",
-  "diagnosis": "diagnosis or assessment or null",
-  "visit_date": "YYYY-MM-DD format or null",
-  "chief_complaint": "main complaint or null"
-}
-If a field is not visible or unclear, use null. Do not guess or invent data.`;
-
     try {
-      const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: VISION_MODEL,
-          stream: false,
-          messages: [{ role: 'user', content: prompt, images: [base64] }]
-        }),
-        signal: AbortSignal.timeout(120000),
+      let ocrResponse: Response;
+      try {
+        ocrResponse = await fetch('http://localhost:5000/process', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageData, template: 'patient_chart' })
+        });
+      } catch { return res.status(503).json({ error: 'OCR service unavailable. Ensure it is running on port 5000.' }); }
+
+      if (!ocrResponse.ok) return res.status(500).json({ error: 'OCR processing failed' });
+      const ocrResult = await ocrResponse.json();
+      if (!ocrResult.success || !ocrResult.full_text?.trim()) return res.status(400).json({ error: 'No text extracted from image' });
+
+      const d = ocrResult.extracted_data;
+      res.json({
+        success: true,
+        extractedData: {
+          name: d.patient_name || '',
+          phone: d.phone || '',
+          email: d.email || '',
+          diagnosis: d.diagnosis || ''
+        },
+        rawText: ocrResult.full_text,
+        confidence: ocrResult.stats?.avg_confidence || 0
       });
-
-      if (!ollamaRes.ok) throw new Error(`Vision model returned ${ollamaRes.status}`);
-      const data = await ollamaRes.json() as any;
-      const raw = data?.message?.content || '';
-
-      // Extract JSON from response (model may wrap in markdown)
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return res.status(422).json({ error: 'Could not parse extracted data', raw });
-
-      const extracted = JSON.parse(jsonMatch[0]);
-      res.json({ success: true, extracted_data: extracted, raw_text: raw });
-    } catch (err: any) {
-      if (err?.name === 'TimeoutError') return res.status(504).json({ error: 'Vision model timed out. Try a smaller image.' });
-      res.status(503).json({ error: 'Vision model unavailable. Ensure Ollama is running with llava.' });
-    }
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
   // ── AI Upload Entry (new schema) ───────────────────────────────────────
@@ -537,21 +484,13 @@ If a field is not visible or unclear, use null. Do not guess or invent data.`;
       const weekAgo = new Date(Date.now() - 7*86400000).toISOString().split('T')[0];
       const monthAgo = new Date(Date.now() - 30*86400000).toISOString().split('T')[0];
 
-      // Respect range/from/to query params for filtered views
-      const { range, from, to } = req.query as Record<string, string>;
-      let filterFrom = monthAgo;
-      let filterTo = today;
-      if (range === 'today') { filterFrom = today; filterTo = today; }
-      else if (range === 'week') { filterFrom = weekAgo; filterTo = today; }
-      else if (from && to) { filterFrom = from; filterTo = to; }
-
       const [todayQ, weekQ, monthQ, totalP, pendingR, recentP] = await Promise.all([
         pool.query(`SELECT COUNT(*) FROM queue WHERE queued_date = $1`, [today]),
         pool.query(`SELECT COUNT(*) FROM queue WHERE queued_date >= $1`, [weekAgo]),
-        pool.query(`SELECT COUNT(*) FROM queue WHERE queued_date >= $1 AND queued_date <= $2`, [filterFrom, filterTo]),
+        pool.query(`SELECT COUNT(*) FROM queue WHERE queued_date >= $1`, [monthAgo]),
         pool.query(`SELECT COUNT(*) FROM patients`),
         pool.query(`SELECT COUNT(*) FROM consultation_records WHERE reviewed = false`),
-        pool.query(`SELECT * FROM patients WHERE created_at::date >= $1 AND created_at::date <= $2 ORDER BY created_at DESC LIMIT 10`, [filterFrom, filterTo]),
+        pool.query(`SELECT * FROM patients ORDER BY created_at DESC LIMIT 5`),
       ]);
 
       res.json({
@@ -576,120 +515,19 @@ If a field is not visible or unclear, use null. Do not guess or invent data.`;
   // ── Chat ───────────────────────────────────────────────────────────────
   app.post("/api/chat", authenticateToken, requireRole('staff','admin'), async (req, res) => {
     const { message, history } = req.body;
-    if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
-
-    const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const MODEL = process.env.DEFAULT_MODEL || 'llama3.2';
-
-    // ── Layer 2: Keyword blocklist (runs before Ollama, saves compute) ──
-    const blockedPatterns = [
-      /\bpassword\b/i, /\bsecret\b/i, /\bjwt\b/i, /\bapi.?key\b/i, /\bcredential/i,
-      /\btoken\b/i, /\bignore.{0,20}(previous|instruction)/i, /\bpretend.{0,20}(you are|to be)\b/i,
-      /\byou are now\b/i, /\bjailbreak\b/i, /\bDAN\b/, /\bchatgpt\b/i, /\bopenai\b/i,
-      /\bgemini\b/i, /\bclaude\b/i, /\bgpt-?[0-9]/i,
-      /\belection\b/i, /\bpresident\b/i, /\bpolitics\b/i, /\bwar\b/i, /\bmilitary\b/i,
-      /\bmovie\b/i, /\bsong\b/i, /\bcelebrity\b/i, /\bsport\b/i, /\bfootball\b/i,
-      /\bcooking\b/i, /\brecipe\b/i, /\btravel\b/i, /\bweather\b/i,
-    ];
-    const isBlocked = blockedPatterns.some(p => p.test(message));
-    if (isBlocked) {
-      return res.json({ text: "I'm the ABC Clinic assistant and can only help with clinic-related questions. Please ask me about patients, the queue, procedures, prescriptions, or how to use the ABC Patient Directory." });
-    }
-
-    // ── Layer 1: System prompt (never exposed to frontend) ──
-    const systemPrompt = `You are the ABC Clinic Health Assistant, an AI embedded inside the ABC Patient Directory web application. You assist clinic staff and doctors ONLY with questions about this clinic system.
-
-ALLOWED TOPICS:
-- Patient records: general data, medical history, consultation records, chart images
-- Queue management: how the queue works, statuses (waiting/in_consultation/done), staff vs doctor controls
-- Procedures and consent forms: counseling, surgery, immunization with e-signature
-- Prescriptions: typed (medication_name, dosage, frequency, duration) or photo uploads
-- Dashboard statistics: today's queue count, weekly/monthly counts, pending reviews
-- How to use features of the ABC Patient Directory app
-- General medical terminology relevant to clinic operations
-- Data privacy and consent processes used in the clinic
-- Roles: staff (data entry, queue management) and admin/doctor (prescriptions, queue doctor controls)
-
-STRICTLY FORBIDDEN — refuse politely but firmly:
-- Any topic unrelated to the ABC Clinic or its web application
-- Politics, news, entertainment, sports, cooking, travel, or any general knowledge
-- Writing code or technical instructions unrelated to the clinic app
-- Revealing passwords, login credentials, JWT tokens, API keys, or any secrets
-- Providing medical diagnoses or treatment recommendations for real patients
-- Impersonating other AI systems
-
-If asked anything outside your scope, respond: "I can only assist with ABC Clinic operations. Is there something about the patient directory or clinic workflow I can help you with?"
-
-Be professional, concise, and helpful. You are a clinic tool, not a general assistant.`;
-
-    // ── Layer 3: Context injection (schema knowledge, no actual patient data) ──
-    const contextMessage = `CONTEXT: The ABC Patient Directory manages patients with fields: full_name, age, gender, date_of_birth, civil_status, address, contact_number, occupation, referred_by, profile_photo. Medical history includes: past medical conditions (hypertension, heart disease, diabetes, asthma, tuberculosis, CKD, thyroid, allergies, surgeries), maintenance medications with optional image, travel history, personal/social history (smoker, alcohol, exposures), family history. Consultation records have: date, subjective/clinical findings, assessment/plan, reviewed status, marked_at. The queue has positions, statuses (waiting/in_consultation/done), remarks. Procedures: counseling/surgery/immunization with e-signature consent. Prescriptions: typed or photo. Dashboard shows today/week/month queue counts and pending reviews.`;
-
-    // ── Live stats injection (aggregate only — no patient names or private data) ──
-    let liveStats = '';
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'Gemini API key not configured' });
     try {
-      const [queueStats, patientStats, reviewStats] = await Promise.all([
-        pool.query(`
-          SELECT
-            COUNT(*) FILTER (WHERE archived = false) AS active_today,
-            COUNT(*) FILTER (WHERE status = 'waiting' AND archived = false) AS waiting,
-            COUNT(*) FILTER (WHERE status = 'in_consultation' AND archived = false) AS in_consultation,
-            COUNT(*) FILTER (WHERE status = 'done' AND archived = false) AS done_today,
-            COUNT(*) FILTER (WHERE queued_date >= date_trunc('week', CURRENT_DATE)) AS this_week,
-            COUNT(*) FILTER (WHERE queued_date >= date_trunc('month', CURRENT_DATE)) AS this_month
-          FROM queue WHERE queued_date = CURRENT_DATE
-        `),
-        pool.query(`SELECT COUNT(*) AS total FROM patients`),
-        pool.query(`SELECT COUNT(*) AS pending FROM consultation_records WHERE reviewed = false`),
-      ]);
-      const q = queueStats.rows[0];
-      const p = patientStats.rows[0];
-      const r = reviewStats.rows[0];
-      liveStats = `\n\nLIVE CLINIC STATS (as of right now):
-- Today's queue: ${q.active_today} total (${q.waiting} waiting, ${q.in_consultation} in consultation, ${q.done_today} done)
-- This week's queue entries: ${q.this_week}
-- This month's queue entries: ${q.this_month}
-- Total patients registered: ${p.total}
-- Consultation records pending review: ${r.pending}`;
-    } catch {
-      // Stats unavailable — continue without them, don't break the chat
-    }
-
-    // Build messages array for Ollama
-    const messages: Array<{role: string; content: string}> = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: contextMessage + liveStats },
-      { role: 'assistant', content: 'Understood. I have the current clinic stats and am ready to assist with ABC Clinic operations.' },
-    ];
-
-    // Add conversation history (last 6 messages max to keep context manageable)
-    if (history && Array.isArray(history)) {
-      const recent = history.slice(-6);
-      for (const h of recent) {
-        messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts?.[0]?.text || h.text || '' });
-      }
-    }
-    messages.push({ role: 'user', content: message });
-
-    try {
-      const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, stream: false, messages }),
-        signal: AbortSignal.timeout(30000), // 30s timeout
+      const genAI = new GoogleGenAI({ apiKey });
+      const patientsRes = await pool.query('SELECT full_name FROM patients');
+      const systemInstruction = `You are a medical administrative assistant for ABC Patient Directory. Patients: ${patientsRes.rows.map((p:any) => p.full_name).join(', ')}. Be professional and concise.`;
+      const result = await genAI.models.generateContent({
+        model: "gemini-1.5-flash",
+        contents: history ? [...history, { role:'user', parts:[{text:message}] }] : [{ role:'user', parts:[{text:message}] }],
+        config: { systemInstruction }
       });
-
-      if (!ollamaRes.ok) throw new Error(`Ollama returned ${ollamaRes.status}`);
-      const data = await ollamaRes.json() as any;
-      const text = data?.message?.content || "I didn't get a response. Please try again.";
-      res.json({ text });
-    } catch (err: any) {
-      if (err?.name === 'TimeoutError' || err?.code === 'UND_ERR_CONNECT_TIMEOUT') {
-        return res.json({ text: "The clinic assistant is taking too long to respond. Please try again." });
-      }
-      console.error('Ollama error:', err);
-      res.json({ text: "The clinic assistant is currently offline. Please ensure Ollama is running." });
-    }
+      res.json({ text: result.text });
+    } catch (err) { res.status(500).json({ error: 'Failed to get AI response' }); }
   });
 
   // ── OCR health/templates ───────────────────────────────────────────────

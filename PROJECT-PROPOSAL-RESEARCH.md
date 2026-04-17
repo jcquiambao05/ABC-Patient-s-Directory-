@@ -250,11 +250,11 @@ Security Features
 
 4. Patient Record Management
 - Complete Profile: View all patient information in one place
-- Medical History: See all past visits, diagnoses, and treatments chronologically
+- Medical History: See all past visits and Check ups
 - Contact Information: Phone, email, address readily available
 - Demographics: Age, gender, date of birth
 - Edit & Update: Modify any information with proper authorization
-- Delete Protection: Confirmation required before deleting records
+
 
 5. AI Health Assistant (Chatbot)
 - Natural Language: Ask questions in plain English
@@ -263,17 +263,18 @@ Security Features
 - Medical History: "What was the last diagnosis for this patient?"
 - Context Aware: Knows current patient database and provides relevant answers
 - Conversation Memory: Remembers previous questions in the conversation
+- Guard Rails for chats that is not related to the system.
 
 6. Authentication & Security
 - Email/Password Login: Secure login with encrypted passwords
-- Two-Factor Authentication: Optional extra security layer using phone app
+- Two-Factor Authentication: Optional extra security layer using gmail
 - Google Sign-In: Alternative login method for convenience
 - Session Management: Automatic logout after inactivity
 - Account Protection: Locks account after multiple failed login attempts
 - Audit Trail: Tracks who accessed which records and when
 
 7. Last Visit Tracking
-- Automatic Updates: System tracks most recent visit date
+- Automatic Updates: System tracks most recent visit date using audit trail
 - Manual Update: Staff can update last visit with one click
 - Dashboard Display: Shows last visit date on patient cards
 - Historical Record: All visits stored in medical charts

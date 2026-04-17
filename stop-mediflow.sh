@@ -3,7 +3,7 @@
 # ABC Patient Directory AI - Stop Script
 # Kills ALL MediFlow processes (Node, Python, npm, PostgreSQL connections, etc.)
 
-echo "🛑 Stopping ABC Patient Directory..."
+echo "Stopping ABCare Clinic Management ..."
 
 # Colors
 RED='\033[0;31m'
@@ -13,6 +13,17 @@ NC='\033[0m'
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# ── Stop Ollama only if WE started it (don't kill system-wide Ollama) ──
+if [ -f "$SCRIPT_DIR/.ollama_pid" ]; then
+    PID=$(cat "$SCRIPT_DIR/.ollama_pid")
+    if ps -p $PID > /dev/null 2>&1; then
+        kill $PID 2>/dev/null && echo -e "${GREEN}✅ Stopped Ollama (PID: $PID)${NC}"
+    fi
+    rm "$SCRIPT_DIR/.ollama_pid"
+else
+    echo -e "${YELLOW}ℹ️  Ollama was not started by this script — leaving it running${NC}"
+fi
 
 # Kill by PID files
 if [ -f "$SCRIPT_DIR/.ocr_pid" ]; then
@@ -33,7 +44,7 @@ fi
 
 # Kill by port (with force)
 echo ""
-echo "🧹 Killing processes on ports..."
+echo " Killing processes on ports..."
 for port in 5000 3000 5432; do
     if lsof -ti:$port > /dev/null 2>&1; then
         lsof -ti:$port | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Killed port $port${NC}"
@@ -48,7 +59,7 @@ pkill -9 -f "ocr_service_with_templates.py" 2>/dev/null && echo -e "${GREEN}✅ 
 
 # Kill npm and build processes
 echo ""
-echo "🧹 Killing npm and build processes..."
+echo " Killing npm and build processes..."
 pkill -9 -f "npm run dev" 2>/dev/null && echo -e "${GREEN}✅ Killed npm dev${NC}"
 pkill -9 -f "vite" 2>/dev/null && echo -e "${GREEN}✅ Killed vite${NC}"
 pkill -9 -f "tsx.*server.ts" 2>/dev/null && echo -e "${GREEN}✅ Killed tsx server${NC}"
@@ -57,7 +68,7 @@ pkill -9 -f "esbuild" 2>/dev/null && echo -e "${GREEN}✅ Killed esbuild${NC}"
 
 # Kill any node processes in this directory
 echo ""
-echo "🧹 Killing Node.js processes in project..."
+echo " Killing Node.js processes in project..."
 ps aux | grep node | grep "$SCRIPT_DIR" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Killed project node processes${NC}"
 
 # Kill any Python processes related to mediflow
@@ -94,7 +105,7 @@ for port in 5000 3000; do
 done
 
 echo ""
-echo -e "${GREEN}🎉 All MediFlow processes stopped!${NC}"
+echo -e "${GREEN} All ABCare processes stopped!${NC}"
 echo ""
 echo "To start again: ./start-mediflow.sh"
 echo ""
