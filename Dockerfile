@@ -43,4 +43,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Start both OCR service and web app
-CMD ["sh", "-c", "python3 ocr_service_simple.py & npx tsx server.ts"]
+# Uses sh -c with & to run OCR in background, then start the main server
+CMD ["sh", "-c", "python3 ocr_service_simple.py &\nnpx tsx server.ts"]
