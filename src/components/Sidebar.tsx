@@ -1,24 +1,27 @@
 import React from 'react';
-import { Users, ListOrdered, BarChart2, MessageSquare, HistoryIcon, Activity, LogOut, Settings } from 'lucide-react';
+import { Users, ListOrdered, BarChart2, MessageSquare, HistoryIcon, Activity, LogOut, Settings, Shield, CalendarDays } from 'lucide-react';
 
 interface Props {
   activeTab: string;
   setActiveTab: (t: string) => void;
   onLogout: () => void;
   role: string | null;
+  displayName?: string | null;
   sidebarCompact?: boolean;
   onOpenSettings: () => void;
+  onOpenAdmin?: () => void;
 }
 
 const nav = [
   { id: 'directory', icon: Users, label: 'Directory' },
   { id: 'queue', icon: ListOrdered, label: 'Queue' },
+  { id: 'calendar', icon: CalendarDays, label: 'Appointments' },
   { id: 'dashboard', icon: BarChart2, label: 'Dashboard' },
   { id: 'chat', icon: MessageSquare, label: 'Assistant' },
   { id: 'audit', icon: HistoryIcon, label: 'Audit' },
 ];
 
-export default function Sidebar({ activeTab, setActiveTab, onLogout, role, sidebarCompact = false, onOpenSettings }: Props) {
+export default function Sidebar({ activeTab, setActiveTab, onLogout, role, displayName, sidebarCompact = false, onOpenSettings, onOpenAdmin }: Props) {
   // On desktop: compact mode hides labels (icon-only). On tablet (md): always icon-only.
   const showLabels = !sidebarCompact;
 
@@ -54,22 +57,39 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, role, sideb
           {showLabels && (
             <div className="hidden lg:flex items-center justify-between bg-zinc-900/50 rounded-xl p-3">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-zinc-500 mb-1">Role</p>
-                <div className={`flex items-center gap-2 text-base font-medium ${role === 'admin' ? 'text-blue-400' : 'text-emerald-400'}`}>
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${role === 'admin' ? 'bg-blue-400' : 'bg-emerald-400'}`} />
-                  {role === 'admin' ? 'Doctor / Admin' : 'Staff'}
+                <p className="text-sm font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  {role === 'superadmin' ? 'Super Admin' : role === 'admin' ? 'Doctor / Admin' : 'Staff'}
+                </p>
+                <div className={`flex items-center gap-2 text-base font-medium ${role === 'superadmin' ? 'text-amber-400' : role === 'admin' ? 'text-blue-400' : 'text-emerald-400'}`}>
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${role === 'superadmin' ? 'bg-amber-400' : role === 'admin' ? 'bg-blue-400' : 'bg-emerald-400'}`} />
+                  {displayName || (role === 'superadmin' ? 'Super Admin' : role === 'admin' ? 'Doctor' : 'Staff')}
                 </div>
               </div>
-              <button onClick={onOpenSettings} title="Display Settings"
-                className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 transition-colors">
-                <Settings className="w-4 h-4" />
-              </button>
+              <div className="flex gap-1">
+                {role === 'superadmin' && onOpenAdmin && (
+                  <button onClick={onOpenAdmin} title="Admin Panel"
+                    className="p-1.5 rounded-lg hover:bg-amber-900/40 text-amber-500 hover:text-amber-300 transition-colors">
+                    <Shield className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={onOpenSettings} title="Settings"
+                  className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 transition-colors">
+                  <Settings className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
           {/* Tablet: role dot + gear */}
           <div className={`${showLabels ? 'md:flex lg:hidden' : 'flex'} justify-center items-center gap-2 py-1`}>
-            <div className={`w-2.5 h-2.5 rounded-full ${role === 'admin' ? 'bg-blue-400' : 'bg-emerald-400'}`} title={role === 'admin' ? 'Doctor / Admin' : 'Staff'} />
-            <button onClick={onOpenSettings} title="Display Settings"
+            <div className={`w-2.5 h-2.5 rounded-full ${role === 'superadmin' ? 'bg-amber-400' : role === 'admin' ? 'bg-blue-400' : 'bg-emerald-400'}`}
+              title={role === 'superadmin' ? 'Super Admin' : role === 'admin' ? 'Doctor / Admin' : 'Staff'} />
+            {role === 'superadmin' && onOpenAdmin && (
+              <button onClick={onOpenAdmin} title="Admin Panel"
+                className="p-1 rounded-lg hover:bg-zinc-800 text-amber-500 hover:text-amber-300 transition-colors">
+                <Shield className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={onOpenSettings} title="Settings"
               className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-200 transition-colors">
               <Settings className="w-4 h-4" />
             </button>
@@ -82,27 +102,34 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, role, sideb
         </div>
       </div>
 
-      {/* ── Mobile bottom nav bar (visible only on mobile) ── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800 flex items-center justify-around px-2 py-1 safe-area-pb">
-        {nav.map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id)}
-            className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-all min-w-0 ${
-              activeTab === item.id ? 'text-emerald-400' : 'text-zinc-500'
-            }`}>
-            <item.icon className="w-5 h-5 flex-shrink-0" />
-            <span className="text-[10px] font-medium truncate">{item.label}</span>
+      {/* ── Mobile bottom nav bar ── */}
+      {/* Row 1: main nav items (6 items) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800 safe-area-pb">
+        {/* Main nav row */}
+        <div className="grid grid-cols-6 px-1 pt-1">
+          {nav.map(item => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)}
+              className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-all ${
+                activeTab === item.id ? 'text-emerald-400' : 'text-zinc-500'
+              }`}>
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <span className="text-[9px] font-medium leading-tight text-center">{item.label}</span>
+            </button>
+          ))}
+        </div>
+        {/* Settings + Logout row — separated with a divider */}
+        <div className="grid grid-cols-2 border-t border-zinc-800/60 px-4 pb-1">
+          <button onClick={onOpenSettings}
+            className="flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-zinc-200 transition-all">
+            <Settings className="w-4 h-4" />
+            <span className="text-xs font-medium">Settings</span>
           </button>
-        ))}
-        <button onClick={onOpenSettings}
-          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-zinc-500 hover:text-zinc-200 transition-all">
-          <Settings className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Settings</span>
-        </button>
-        <button onClick={onLogout}
-          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-zinc-500 hover:text-red-400 transition-all">
-          <LogOut className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Logout</span>
-        </button>
+          <button onClick={onLogout}
+            className="flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-red-400 transition-all border-l border-zinc-800/60">
+            <LogOut className="w-4 h-4" />
+            <span className="text-xs font-medium">Logout</span>
+          </button>
+        </div>
       </nav>
     </>
   );

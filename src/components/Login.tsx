@@ -56,6 +56,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [mode, setMode] = useState<'login' | 'forgot' | 'mfa'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const isAdminKeyword = email.trim().toLowerCase() === 'admin';
   const [showPassword, setShowPassword] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -234,7 +235,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-5">
-                  {/* Email Input */}
+                  {/* Email / Username Input */}
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
                       Email Address
@@ -242,12 +243,13 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                     <div className="relative">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
                       <input
-                        type="email"
+                        type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
+                        pattern={isAdminKeyword ? undefined : undefined}
                         className="w-full pl-12 pr-4 py-3.5 bg-zinc-800/50 border border-zinc-700 text-white rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500"
-                        placeholder="admin@mediflow.ai"
+                        placeholder="admin@clinic.com"
                       />
                     </div>
                   </div>

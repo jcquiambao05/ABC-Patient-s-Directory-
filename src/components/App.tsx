@@ -12,7 +12,9 @@ import DashboardPage from './DashboardPage';
 import ChatPage from './ChatPage';
 import AuditPage from './AuditPage';
 import SettingsPanel from './SettingsPanel';
+import AdminPanel from './AdminPanel';
 import AIUploadPreviewModal from './AIUploadPreviewModal';
+import CalendarPage from './CalendarPage';
 import { api } from '../lib/api';
 import type { Patient } from '../types/index';
 import {
@@ -26,6 +28,7 @@ import {
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('directory');
@@ -37,6 +40,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showAIUpload, setShowAIUpload] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [showSignup, setShowSignup] = useState(false);
 
@@ -59,6 +63,7 @@ export default function App() {
       .then(data => {
         setToken(stored);
         setRole(data.user.role);
+        setDisplayName(data.user.display_name || data.user.name || null);
         setIsAuthenticated(true);
         // Load saved preferences
         if (data.user.preferences && Object.keys(data.user.preferences).length > 0) {
@@ -100,6 +105,7 @@ export default function App() {
     // Load preferences from /api/auth/me
     try {
       const meData = await api('/api/auth/me', {}, newToken);
+      setDisplayName(meData.user.display_name || meData.user.name || null);
       if (meData.user.preferences && Object.keys(meData.user.preferences).length > 0) {
         const prefs = { ...defaultPreferences, ...meData.user.preferences };
         setPreferences(prefs);
@@ -117,16 +123,22 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('mediflow_auth_token');
-    setToken(null); setRole(null); setIsAuthenticated(false);
+    setToken(null); setRole(null); setDisplayName(null); setIsAuthenticated(false);
     setSelectedPatient(null); setIsExpanded(false);
     setPreferences(defaultPreferences);
   };
 
   const fetchPatients = useCallback(async () => {
     if (!token) return;
+    // superadmin can view directory in read-only mode
+    if (role === 'superadmin') {
+      try { const data = await api('/api/patients', {}, token); setPatients(data); }
+      catch (err) { console.error(err); }
+      return;
+    }
     try { const data = await api('/api/patients', {}, token); setPatients(data); }
     catch (err) { console.error(err); }
-  }, [token]);
+  }, [token, role]);
 
   useEffect(() => { if (isAuthenticated && token) fetchPatients(); }, [isAuthenticated, token, fetchPatients]);
 
@@ -187,18 +199,21 @@ export default function App() {
           setActiveTab={t => { setActiveTab(t); setSelectedPatient(null); setIsExpanded(false); }}
           onLogout={handleLogout}
           role={role}
+          displayName={displayName}
           sidebarCompact={preferences.sidebarCompact}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenAdmin={role === 'superadmin' ? () => setShowAdminPanel(true) : undefined}
         />
 
         {/* Main content */}
-        <main className="flex-1 overflow-hidden flex flex-col pb-[60px] md:pb-0">
+        <main className="flex-1 overflow-hidden flex flex-col pb-[88px] md:pb-0">
           {activeTab === 'directory' && (
             <div className="flex-1 flex overflow-hidden relative">
+              {/* Patient list — hidden on mobile when a patient is selected */}
               <motion.div
                 animate={{ width: isExpanded ? 0 : (selectedPatient ? '40%' : '100%'), opacity: isExpanded ? 0 : 1 }}
                 transition={{ duration: 0.35, ease: 'easeInOut' }}
-                className="flex flex-col border-r border-zinc-200 bg-white overflow-hidden"
+                className={`flex flex-col border-r border-zinc-200 bg-white overflow-hidden ${selectedPatient ? 'hidden md:flex' : 'flex'}`}
                 style={{ minWidth: 0 }}
               >
                 <header className="p-5 md:p-6 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
@@ -220,6 +235,11 @@ export default function App() {
                           <span className="hidden sm:inline">New Entry</span>
                         </button>
                       </>
+                    )}
+                    {role === 'superadmin' && (
+                      <span className="text-xs text-amber-500 bg-amber-900/20 border border-amber-800/50 px-3 py-1.5 rounded-xl font-medium">
+                        Read-only view
+                      </span>
                     )}
                   </div>
                 </header>
@@ -282,6 +302,7 @@ export default function App() {
           )}
 
           {activeTab === 'queue' && token && <QueuePage token={token} role={role} />}
+          {activeTab === 'calendar' && token && <CalendarPage token={token} role={role} />}
           {activeTab === 'dashboard' && token && <DashboardPage token={token} />}
           {activeTab === 'chat' && token && <ChatPage token={token} />}
           {activeTab === 'audit' && token && <AuditPage token={token} />}
@@ -293,6 +314,10 @@ export default function App() {
 
         {showSettings && token && (
           <SettingsPanel token={token} onClose={() => setShowSettings(false)} />
+        )}
+
+        {showAdminPanel && token && role === 'superadmin' && (
+          <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />
         )}
 
         {showAIUpload && token && (

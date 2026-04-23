@@ -16,6 +16,11 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
 });
 
+// Set timezone for all connections so DATE columns don't shift
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'Asia/Manila'");
+});
+
 // ── Timestamp filename helper ──────────────────────────────────────────────
 function generateTimestampFilename(ext: string): string {
   const now = new Date();
@@ -105,14 +110,14 @@ async function startServer() {
   app.get("/api/health", (_, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
   // ── PATIENTS ───────────────────────────────────────────────────────────
-  app.get("/api/patients", authenticateToken, requireRole('staff','admin'), async (req, res) => {
+  app.get("/api/patients", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
     try {
       const result = await pool.query(`
         SELECT p.*,
           (SELECT marked_at FROM consultation_records
            WHERE patient_id = p.id AND reviewed = true
            ORDER BY marked_at DESC LIMIT 1) AS last_visit_date
-        FROM patients p ORDER BY p.created_at DESC
+        FROM patients p WHERE p.archived = false ORDER BY p.created_at DESC
       `);
       res.json(result.rows);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -133,7 +138,21 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
-  app.get("/api/patients/:id", authenticateToken, requireRole('staff','admin'), async (req, res) => {
+  // Get archived patients (superadmin only) — MUST be before /:id to avoid route conflict
+  app.get("/api/patients/archived/list", authenticateToken, requireRole('superadmin'), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT p.*, au.display_name AS archived_by_name
+        FROM patients p
+        LEFT JOIN admin_users au ON au.id = p.archived_by
+        WHERE p.archived = true
+        ORDER BY p.archived_at DESC
+      `);
+      res.json(result.rows);
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  app.get("/api/patients/:id", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
     try {
       const [pRes, mhRes, crRes, ciRes] = await Promise.all([
         pool.query('SELECT * FROM patients WHERE id = $1', [req.params.id]),
@@ -157,12 +176,37 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
-  app.delete("/api/patients/:id", authenticateToken, requireRole('staff'), async (req, res) => {
+  // Archive patient (staff or superadmin — soft delete, hidden from directory)
+  app.delete("/api/patients/:id", authenticateToken, requireRole('staff', 'superadmin'), async (req, res) => {
+    try {
+      const pRes = await pool.query('SELECT full_name FROM patients WHERE id=$1', [req.params.id]);
+      const name = pRes.rows[0]?.full_name || req.params.id;
+      const archiverId = (req as any).user?.userId;
+      await pool.query(
+        'UPDATE patients SET archived=true, archived_at=NOW(), archived_by=$1 WHERE id=$2',
+        [archiverId, req.params.id]
+      );
+      await logAudit(req, 'ARCHIVE', 'patient', req.params.id, `Archived patient: ${name}`);
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  // Restore archived patient (superadmin only)
+  app.post("/api/patients/:id/restore", authenticateToken, requireRole('superadmin'), async (req, res) => {
+    try {
+      await pool.query('UPDATE patients SET archived=false, archived_at=NULL, archived_by=NULL WHERE id=$1', [req.params.id]);
+      await logAudit(req, 'RESTORE', 'patient', req.params.id, `Restored archived patient`);
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  // Permanently delete patient (superadmin only)
+  app.delete("/api/patients/:id/permanent", authenticateToken, requireRole('superadmin'), async (req, res) => {
     try {
       const pRes = await pool.query('SELECT full_name FROM patients WHERE id=$1', [req.params.id]);
       const name = pRes.rows[0]?.full_name || req.params.id;
       await pool.query('DELETE FROM patients WHERE id = $1', [req.params.id]);
-      await logAudit(req, 'DELETE', 'patient', req.params.id, `Deleted patient: ${name}`);
+      await logAudit(req, 'PERMANENT_DELETE', 'patient', req.params.id, `Permanently deleted patient: ${name}`);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
@@ -178,7 +222,7 @@ async function startServer() {
   });
 
   // ── Medical history ────────────────────────────────────────────────────
-  app.get("/api/patients/:id/medical-history", authenticateToken, requireRole('staff','admin'), async (req, res) => {
+  app.get("/api/patients/:id/medical-history", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM patient_medical_history WHERE patient_id = $1', [req.params.id]);
       res.json(r.rows[0] || null);
@@ -221,7 +265,7 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
-  app.get("/api/patients/:id/chart-images", authenticateToken, requireRole('staff','admin'), async (req, res) => {
+  app.get("/api/patients/:id/chart-images", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM chart_images WHERE patient_id = $1 ORDER BY uploaded_at DESC', [req.params.id]);
       res.json(r.rows);
@@ -360,6 +404,16 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
+  app.put("/api/prescriptions/:id", authenticateToken, requireRole('admin'), async (req, res) => {
+    const { medication_name, dosage, instructions } = req.body;
+    try {
+      await pool.query(
+        'UPDATE prescriptions SET medication_name=$1, dosage=$2, instructions=$3 WHERE id=$4',
+        [medication_name||null, dosage||null, instructions||null, req.params.id]
+      );
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
   // ── Queue ──────────────────────────────────────────────────────────────
   app.get("/api/queue", authenticateToken, requireRole('staff','admin'), async (req, res) => {
     try {
@@ -527,6 +581,114 @@ If a field is not visible or unclear, use null. Do not guess or invent data.`;
       `, [patient.id, d.visit_date||new Date().toISOString().split('T')[0], d.diagnosis||null, ocrResult.full_text, ocrResult.stats?.avg_confidence||0]);
 
       res.json({ success: true, patient_id: patient.id, chart_id: crRes.rows[0].id, patient_data: patient });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  // ── Appointments ───────────────────────────────────────────────────────
+  app.get("/api/appointments", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
+    const { month, date } = req.query as Record<string, string>;
+    try {
+      let query = `
+        SELECT a.id, a.patient_id, a.created_by, a.title, a.notes,
+          TO_CHAR(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+          a.appointment_time::text AS appointment_time,
+          a.frequency, a.frequency_every,
+          TO_CHAR(a.end_date, 'YYYY-MM-DD') AS end_date,
+          a.status, a.sms_sent, a.sms_sent_at, a.created_at,
+          p.full_name AS patient_name, p.contact_number AS patient_phone, p.profile_photo_path
+        FROM appointments a
+        JOIN patients p ON p.id = a.patient_id
+        WHERE a.status != 'cancelled'
+      `;
+      const params: any[] = [];
+      if (date) {
+        params.push(date);
+        query += ` AND TO_CHAR(a.appointment_date, 'YYYY-MM-DD') = $${params.length}`;
+      } else if (month) {
+        params.push(month + '-01');
+        query += ` AND DATE_TRUNC('month', a.appointment_date) = DATE_TRUNC('month', $${params.length}::date)`;
+      }
+      query += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC';
+      const r = await pool.query(query, params);
+      res.json(r.rows);
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  app.post("/api/appointments", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
+    const { patient_id, title, notes, appointment_date, appointment_time, frequency, frequency_every, end_date } = req.body;
+    if (!patient_id || !appointment_date) return res.status(400).json({ error: 'patient_id and appointment_date are required' });
+    const createdBy = (req as any).user?.userId;
+    try {
+      const r = await pool.query(`
+        INSERT INTO appointments (patient_id, created_by, title, notes, appointment_date, appointment_time, frequency, frequency_every, end_date)
+        VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9::date) RETURNING *
+      `, [patient_id, createdBy, title||'Follow-up Consultation', notes||null, appointment_date, appointment_time||null, frequency||'once', frequency_every||1, end_date||null]);
+      res.json(r.rows[0]);
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  // SMS reminder — MUST be before /:id routes to avoid Express matching 'send-reminders' as an id
+  app.post("/api/appointments/send-reminders", authenticateToken, requireRole('admin','superadmin'), async (req, res) => {
+    try {
+      const twoDaysFromNow = new Date();
+      twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+      const targetDate = twoDaysFromNow.toISOString().split('T')[0];
+
+      const r = await pool.query(`
+        SELECT a.*, p.full_name AS patient_name, p.contact_number AS patient_phone
+        FROM appointments a JOIN patients p ON p.id = a.patient_id
+        WHERE a.appointment_date = $1 AND a.sms_sent = false AND a.status = 'scheduled'
+      `, [targetDate]);
+
+      const SMS_API_URL = process.env.SMS_API_URL;
+      const SMS_API_KEY = process.env.SMS_API_KEY;
+      const SMS_SENDER = process.env.SMS_SENDER_NAME || 'ABCClinic';
+
+      let sent = 0, failed = 0;
+      for (const appt of r.rows) {
+        if (!appt.patient_phone) { failed++; continue; }
+        const dateStr = new Date(appt.appointment_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        const timeStr = appt.appointment_time ? ` at ${appt.appointment_time.slice(0,5)}` : '';
+        const message = `Hi ${appt.patient_name}, this is a reminder from ABC Clinic. You have a follow-up appointment on ${dateStr}${timeStr}. Please call us if you need to reschedule.`;
+
+        if (SMS_API_URL && SMS_API_KEY) {
+          try {
+            const smsRes = await fetch(SMS_API_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ apikey: SMS_API_KEY, number: appt.patient_phone, message, sendername: SMS_SENDER }),
+            });
+            if (smsRes.ok) {
+              await pool.query('UPDATE appointments SET sms_sent=true, sms_sent_at=NOW() WHERE id=$1', [appt.id]);
+              sent++;
+            } else { failed++; }
+          } catch { failed++; }
+        } else {
+          console.log(`[SMS REMINDER] Would send to ${appt.patient_phone}: ${message}`);
+          await pool.query('UPDATE appointments SET sms_sent=true, sms_sent_at=NOW() WHERE id=$1', [appt.id]);
+          sent++;
+        }
+      }
+      res.json({ success: true, sent, failed, targetDate });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  app.put("/api/appointments/:id", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
+    const { title, notes, appointment_date, appointment_time, frequency, frequency_every, end_date, status } = req.body;
+    try {
+      await pool.query(`
+        UPDATE appointments SET title=$1, notes=$2, appointment_date=$3, appointment_time=$4,
+          frequency=$5, frequency_every=$6, end_date=$7, status=COALESCE($8, status)
+        WHERE id=$9
+      `, [title||'Follow-up Consultation', notes||null, appointment_date, appointment_time||null, frequency||'once', frequency_every||1, end_date||null, status||null, req.params.id]);
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  });
+
+  app.delete("/api/appointments/:id", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
+    try {
+      await pool.query("UPDATE appointments SET status='cancelled' WHERE id=$1", [req.params.id]);
+      res.json({ success: true });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 

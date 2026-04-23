@@ -7,7 +7,7 @@
 $ErrorActionPreference = "Continue"
 
 Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║     MediFlow AI - Pre-Push Security Check                 ║" -ForegroundColor Cyan
+Write-Host "║     ABCare MediFlow - Pre-Push Security Check                 ║" -ForegroundColor Cyan
 Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 

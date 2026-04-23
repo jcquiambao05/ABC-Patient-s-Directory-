@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Loader2, Upload, FileText, Image, CheckCircle, Edit3, Trash2, Printer } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Loader2, Upload, FileText, Image, CheckCircle, Trash2, Printer, Save, Archive } from 'lucide-react';
 import { api } from '../lib/api';
 import ConsultationTable from './ConsultationTable';
-import EditPatientModal from './EditPatientModal';
 import ProcedureModal from './ProcedureModal';
 import PrescriptionSection from './PrescriptionSection';
 import type { Patient, ChartImage, Procedure } from '../types/index';
@@ -29,6 +28,19 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showProcedureModal, setShowProcedureModal] = useState(false);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+
+  // Inline edit state for General tab
+  const [generalEdit, setGeneralEdit] = useState<any>(null);
+  const [generalSaving, setGeneralSaving] = useState(false);
+  const [generalError, setGeneralError] = useState('');
+  const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
+  const [newPhotoPreview, setNewPhotoPreview] = useState<string | null>(null);
+
+  // Inline edit state for Medical History tab
+  const [historyEdit, setHistoryEdit] = useState<any>(null);
+  const [historySaving, setHistorySaving] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -46,6 +58,62 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   }, [patient.id, token]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Save general data inline
+  const handleGeneralSave = async () => {
+    if (!generalEdit) return;
+    setGeneralSaving(true); setGeneralError('');
+    try {
+      await api(`/api/patients/${patient.id}`, { method: 'PUT', body: JSON.stringify(generalEdit) }, token);
+      // Upload new photo if selected
+      if (newPhotoFile) {
+        const fd = new FormData();
+        fd.append('photo', newPhotoFile);
+        const res = await fetch(`/api/patients/${patient.id}/profile-photo`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          throw new Error(e.error || 'Photo upload failed');
+        }
+      }
+      setGeneralEdit(null);
+      setNewPhotoFile(null);
+      setNewPhotoPreview(null);
+      await loadData();
+      onRefresh();
+    } catch (err) { setGeneralError((err as Error).message); }
+    finally { setGeneralSaving(false); }
+  };
+
+  // Save medical history inline
+  const handleHistorySave = async () => {
+    if (!historyEdit) return;
+    setHistorySaving(true); setHistoryError('');
+    try {
+      // personal_social_history and family_history are stored as plain booleans in DB
+      // but we edit them as {checked, notes} — convert back before saving
+      const psForDB = Object.fromEntries(
+        Object.entries(historyEdit.personal_social_history).map(([k, v]: any) => [k, v.checked ?? v])
+      );
+      const fhForDB = Object.fromEntries(
+        Object.entries(historyEdit.family_history).map(([k, v]: any) => [k, v.checked ?? v])
+      );
+      await api(`/api/patients/${patient.id}/medical-history`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...historyEdit,
+          personal_social_history: psForDB,
+          family_history: fhForDB,
+        }),
+      }, token);
+      setHistoryEdit(null);
+      await loadData();
+    } catch (err) { setHistoryError((err as Error).message); }
+    finally { setHistorySaving(false); }
+  };
 
   const handleChartImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -177,19 +245,12 @@ ${records.length ? `
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400"><X className="w-4 h-4" /></button>
       </div>
 
-      {/* Staff actions */}
+      {/* Staff actions — Print + Archive (replaces delete) */}
       {role === 'staff' && (
         <div className="px-4 py-2 border-b border-zinc-100 flex gap-2 bg-zinc-50">
-          <button onClick={() => setShowEditModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-emerald-400 text-zinc-700 hover:text-emerald-600 rounded-lg text-sm font-medium transition-colors">
-            <Edit3 className="w-3.5 h-3.5" /> Edit Patient
-          </button>
-          <button onClick={async () => {
-            if (!confirm(`Delete ${patient.full_name}? This cannot be undone.`)) return;
-            try { await api(`/api/patients/${patient.id}`, { method: 'DELETE' }, token); onRefresh(); onClose(); }
-            catch (err) { alert((err as Error).message); }
-          }} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-red-400 text-zinc-700 hover:text-red-600 rounded-lg text-sm font-medium transition-colors">
-            <Trash2 className="w-3.5 h-3.5" /> Delete
+          <button onClick={() => setShowArchiveConfirm(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-amber-400 text-zinc-700 hover:text-amber-600 rounded-lg text-sm font-medium transition-colors">
+            <Archive className="w-3.5 h-3.5" /> Archive Patient
           </button>
           <button onClick={handlePrint}
             className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-zinc-400 text-zinc-700 rounded-lg text-sm font-medium transition-colors ml-auto">
@@ -221,101 +282,428 @@ ${records.length ? `
           <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
         ) : (
           <>
-            {/* General Data */}
+            {/* General Data — inline editable for staff */}
             {activeTab === 'general' && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    ['Patient Name', patient.full_name],
-                    ['Age / Gender', `${patient.age || '—'} / ${patient.gender || '—'}`],
-                    ['Date of Birth', patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : '—'],
-                    ['Civil Status', patient.civil_status || '—'],
-                    ['Contact Number', patient.contact_number || '—'],
-                    ['Occupation', patient.occupation || '—'],
-                  ].map(([label, value]) => (
-                    <div key={label} className="bg-zinc-50 rounded-xl p-4">
-                      <p className="text-sm text-zinc-500 mb-0.5">{label}</p>
-                      <p className="text-base font-medium text-zinc-900">{value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="bg-zinc-50 rounded-xl p-4">
-                  <p className="text-sm text-zinc-500 mb-0.5">Address</p>
-                  <p className="text-base font-medium text-zinc-900">{patient.address || '—'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-xl p-4">
-                  <p className="text-sm text-zinc-500 mb-0.5">Referred By</p>
-                  <p className="text-base font-medium text-zinc-900">{patient.referred_by || '—'}</p>
-                </div>
-                {patient.privacy_consent_at && (
-                  <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 rounded-xl p-3">
-                    <CheckCircle className="w-4 h-4" />
-                    <span>Consent signed {new Date(patient.privacy_consent_at).toLocaleDateString()}</span>
+                {role === 'staff' && !generalEdit && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setGeneralEdit({
+                        full_name: patient.full_name,
+                        age: patient.age ?? '',
+                        gender: patient.gender ?? '',
+                        date_of_birth: patient.date_of_birth ?? '',
+                        civil_status: patient.civil_status ?? '',
+                        contact_number: patient.contact_number ?? '',
+                        occupation: patient.occupation ?? '',
+                        referred_by: patient.referred_by ?? '',
+                        address: patient.address ?? '',
+                      })}
+                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-200 hover:border-emerald-400 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      Edit Info
+                    </button>
                   </div>
+                )}
+
+                {generalEdit && role === 'staff' ? (
+                  <div className="space-y-3">
+                    {generalError && <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">{generalError}</div>}
+
+                    {/* Profile photo upload */}
+                    <div className="flex items-center gap-4 p-3 bg-zinc-50 rounded-xl border border-zinc-200">
+                      <div className="w-16 h-16 rounded-xl bg-zinc-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {newPhotoPreview ? (
+                          <img src={newPhotoPreview} alt="Preview" className="w-full h-full object-cover" />
+                        ) : patient.profile_photo_path ? (
+                          <img src={`/${patient.profile_photo_path}`} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="font-bold text-zinc-500 text-sm">
+                            {patient.full_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-zinc-700 mb-1">Profile Photo</p>
+                        <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-zinc-300 hover:border-emerald-400 text-zinc-600 hover:text-emerald-600 rounded-lg text-xs cursor-pointer transition-colors">
+                          <Upload className="w-3.5 h-3.5" />
+                          {newPhotoFile ? 'Change photo' : 'Upload photo'}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            onChange={e => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              setNewPhotoFile(f);
+                              setNewPhotoPreview(URL.createObjectURL(f));
+                            }}
+                          />
+                        </label>
+                        {newPhotoFile && (
+                          <p className="text-[10px] text-emerald-600 mt-1 truncate max-w-[160px]">{newPhotoFile.name}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: 'Full Name', key: 'full_name', type: 'text' },
+                        { label: 'Age', key: 'age', type: 'number' },
+                        { label: 'Gender', key: 'gender', type: 'text' },
+                        { label: 'Date of Birth', key: 'date_of_birth', type: 'date' },
+                        { label: 'Civil Status', key: 'civil_status', type: 'text' },
+                        { label: 'Contact Number', key: 'contact_number', type: 'text' },
+                        { label: 'Occupation', key: 'occupation', type: 'text' },
+                        { label: 'Referred By', key: 'referred_by', type: 'text' },
+                      ].map(({ label, key, type }) => (
+                        <div key={key}>
+                          <label className="text-xs text-zinc-500 font-medium block mb-1">{label}</label>
+                          <input
+                            type={type}
+                            value={generalEdit[key] ?? ''}
+                            onChange={e => setGeneralEdit((g: any) => ({ ...g, [key]: e.target.value }))}
+                            className="w-full px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30 text-zinc-900"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 font-medium block mb-1">Address</label>
+                      <textarea
+                        value={generalEdit.address ?? ''}
+                        onChange={e => setGeneralEdit((g: any) => ({ ...g, address: e.target.value }))}
+                        rows={2}
+                        className="w-full px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30 text-zinc-900 resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setGeneralEdit(null); setGeneralError(''); setNewPhotoFile(null); setNewPhotoPreview(null); }} className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg text-xs font-medium transition-colors">Cancel</button>
+                      <button onClick={handleGeneralSave} disabled={generalSaving} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1">
+                        {generalSaving && <Loader2 className="w-3 h-3 animate-spin" />}
+                        <Save className="w-3 h-3" /> Save Changes
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[
+                        ['Patient Name', patient.full_name],
+                        ['Age / Gender', `${patient.age || '—'} / ${patient.gender || '—'}`],
+                        ['Date of Birth', patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : '—'],
+                        ['Civil Status', patient.civil_status || '—'],
+                        ['Contact Number', patient.contact_number || '—'],
+                        ['Occupation', patient.occupation || '—'],
+                      ].map(([label, value]) => (
+                        <div key={label} className="bg-zinc-50 rounded-xl p-4">
+                          <p className="text-sm text-zinc-500 mb-0.5">{label}</p>
+                          <p className="text-base font-medium text-zinc-900">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="bg-zinc-50 rounded-xl p-4">
+                      <p className="text-sm text-zinc-500 mb-0.5">Address</p>
+                      <p className="text-base font-medium text-zinc-900">{patient.address || '—'}</p>
+                    </div>
+                    <div className="bg-zinc-50 rounded-xl p-4">
+                      <p className="text-sm text-zinc-500 mb-0.5">Referred By</p>
+                      <p className="text-base font-medium text-zinc-900">{patient.referred_by || '—'}</p>
+                    </div>
+                    {patient.privacy_consent_at && (
+                      <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 rounded-xl p-3">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Consent signed {new Date(patient.privacy_consent_at).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
-            {/* Medical History */}
+            {/* Medical History — inline editable for staff */}
             {activeTab === 'history' && mh && (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="border border-zinc-200 rounded-xl p-4">
-                  <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Past Medical History</h4>
-                  <div className="space-y-1.5">
-                    {Object.entries(mh.past_medical || {}).map(([key, val]: any) => (
-                      <div key={key}>
-                        <div className={`flex items-center gap-2 text-sm ${val.checked ? 'text-zinc-900' : 'text-zinc-400'}`}>
-                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val.checked ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
-                            {val.checked && <span className="text-white text-[8px]">✓</span>}
-                          </span>
-                          {pmLabels[key] || key}
-                        </div>
-                        {val.checked && val.notes && <p className="text-xs text-zinc-500 ml-5 mt-0.5">{val.notes}</p>}
+              <div className="space-y-4">
+                {role === 'staff' && !historyEdit && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => {
+                        const defaultPM = {
+                          hypertension: { checked: false, notes: '' },
+                          heart_disease: { checked: false, notes: '' },
+                          diabetes_mellitus: { checked: false, notes: '' },
+                          bronchial_asthma: { checked: false, notes: '' },
+                          tuberculosis: { checked: false, notes: '' },
+                          chronic_kidney_disease: { checked: false, notes: '' },
+                          thyroid_disease: { checked: false, notes: '' },
+                          allergies: { checked: false, notes: '' },
+                          surgeries: { checked: false, notes: '' },
+                          others: { checked: false, notes: '' },
+                        };
+                        const defaultPS = {
+                          smoker: { checked: false, notes: '' },
+                          alcohol_intake: { checked: false, notes: '' },
+                          exposures: { checked: false, notes: '' },
+                          others: { checked: false, notes: '' },
+                        };
+                        const defaultFH = {
+                          hypertension: { checked: false, notes: '' },
+                          diabetes_mellitus: { checked: false, notes: '' },
+                          bronchial_asthma: { checked: false, notes: '' },
+                          cancer: { checked: false, notes: '' },
+                          others: { checked: false, notes: '' },
+                        };
+
+                        // Normalize PS — DB may store plain booleans or {checked,notes}
+                        const rawPS = mh.personal_social_history || {};
+                        const normalizedPS = Object.fromEntries(
+                          Object.entries(defaultPS).map(([k, def]) => {
+                            const v = rawPS[k];
+                            if (typeof v === 'boolean') return [k, { checked: v, notes: '' }];
+                            if (v && typeof v === 'object') return [k, { checked: !!(v as any).checked, notes: (v as any).notes ?? '' }];
+                            return [k, def];
+                          })
+                        );
+
+                        // Normalize FH — same
+                        const rawFH = mh.family_history || {};
+                        const normalizedFH = Object.fromEntries(
+                          Object.entries(defaultFH).map(([k, def]) => {
+                            const v = rawFH[k];
+                            if (typeof v === 'boolean') return [k, { checked: v, notes: '' }];
+                            if (v && typeof v === 'object') return [k, { checked: !!(v as any).checked, notes: (v as any).notes ?? '' }];
+                            return [k, def];
+                          })
+                        );
+
+                        setHistoryEdit({
+                          past_medical: { ...defaultPM, ...JSON.parse(JSON.stringify(mh.past_medical || {})) },
+                          maintenance_medications_text: mh.maintenance_medications_text ?? '',
+                          travel_history: mh.travel_history ?? '',
+                          personal_social_history: normalizedPS,
+                          family_history: normalizedFH,
+                        });
+                      }}
+                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-200 hover:border-emerald-400 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      Edit History
+                    </button>
+                  </div>
+                )}
+
+                {historyEdit && role === 'staff' ? (
+                  <div className="space-y-4">
+                    {historyError && <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">{historyError}</div>}
+
+                    {/* Past Medical History */}
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Past Medical History</h4>
+                      <div className="space-y-2">
+                        {Object.entries(historyEdit.past_medical || {}).map(([key, val]: any) => (
+                          <div key={key} className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={val.checked}
+                              onChange={e => setHistoryEdit((h: any) => ({
+                                ...h,
+                                past_medical: { ...h.past_medical, [key]: { ...h.past_medical[key], checked: e.target.checked } }
+                              }))}
+                              className="mt-1 accent-emerald-500"
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-zinc-700">{pmLabels[key] || key}</span>
+                              {val.checked && (
+                                <input
+                                  type="text"
+                                  value={historyEdit.past_medical[key]?.notes ?? ''}
+                                  onChange={e => setHistoryEdit((h: any) => ({
+                                    ...h,
+                                    past_medical: { ...h.past_medical, [key]: { ...h.past_medical[key], notes: e.target.value } }
+                                  }))}
+                                  placeholder="Notes..."
+                                  className="mt-1 w-full px-2 py-1 bg-white border border-zinc-200 rounded text-xs outline-none focus:border-emerald-400"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="border border-zinc-200 rounded-xl p-4">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Maintenance Medications</h4>
-                    <p className="text-sm text-zinc-700 whitespace-pre-wrap">{mh.maintenance_medications_text || '—'}</p>
-                    {mh.maintenance_medications_image_path && (
-                      <img src={`/${mh.maintenance_medications_image_path}`} alt="Medication" className="mt-2 rounded-lg max-h-32 object-contain" />
-                    )}
-                  </div>
-                  <div className="border border-zinc-200 rounded-xl p-4">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Travel History</h4>
-                    <p className="text-sm text-zinc-700 whitespace-pre-wrap">{mh.travel_history || '—'}</p>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="border border-zinc-200 rounded-xl p-4">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Personal / Social History</h4>
-                    <div className="space-y-1.5">
-                      {Object.entries(mh.personal_social_history || {}).map(([key, val]: any) => (
-                        <div key={key} className={`flex items-center gap-2 text-sm ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
-                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
-                            {val && <span className="text-white text-[8px]">✓</span>}
-                          </span>
-                          {psLabels[key] || key}
-                        </div>
-                      ))}
+                    </div>
+
+                    {/* Maintenance Medications */}
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Maintenance Medications</h4>
+                      <textarea
+                        value={historyEdit.maintenance_medications_text}
+                        onChange={e => setHistoryEdit((h: any) => ({ ...h, maintenance_medications_text: e.target.value }))}
+                        rows={3}
+                        className="w-full px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm outline-none focus:border-emerald-400 resize-none"
+                        placeholder="List medications..."
+                      />
+                    </div>
+
+                    {/* Travel History */}
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Travel History</h4>
+                      <textarea
+                        value={historyEdit.travel_history}
+                        onChange={e => setHistoryEdit((h: any) => ({ ...h, travel_history: e.target.value }))}
+                        rows={2}
+                        className="w-full px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm outline-none focus:border-emerald-400 resize-none"
+                        placeholder="Travel history..."
+                      />
+                    </div>
+
+                    {/* Personal / Social History */}
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Personal / Social History</h4>
+                      <div className="space-y-2">
+                        {Object.entries(historyEdit.personal_social_history || {}).map(([key, val]: any) => (
+                          <div key={key} className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={val.checked ?? val}
+                              onChange={e => setHistoryEdit((h: any) => ({
+                                ...h,
+                                personal_social_history: {
+                                  ...h.personal_social_history,
+                                  [key]: { ...h.personal_social_history[key], checked: e.target.checked }
+                                }
+                              }))}
+                              className="mt-1 accent-emerald-500"
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-zinc-700">{psLabels[key] || key}</span>
+                              {(val.checked ?? val) && (
+                                <input
+                                  type="text"
+                                  value={historyEdit.personal_social_history[key]?.notes ?? ''}
+                                  onChange={e => setHistoryEdit((h: any) => ({
+                                    ...h,
+                                    personal_social_history: {
+                                      ...h.personal_social_history,
+                                      [key]: { ...h.personal_social_history[key], notes: e.target.value }
+                                    }
+                                  }))}
+                                  placeholder="Notes..."
+                                  className="mt-1 w-full px-2 py-1 bg-white border border-zinc-200 rounded text-xs outline-none focus:border-emerald-400"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Family History */}
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Family History</h4>
+                      <div className="space-y-2">
+                        {Object.entries(historyEdit.family_history || {}).map(([key, val]: any) => (
+                          <div key={key} className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={val.checked ?? val}
+                              onChange={e => setHistoryEdit((h: any) => ({
+                                ...h,
+                                family_history: {
+                                  ...h.family_history,
+                                  [key]: { ...h.family_history[key], checked: e.target.checked }
+                                }
+                              }))}
+                              className="mt-1 accent-emerald-500"
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm text-zinc-700">{fhLabels[key] || key}</span>
+                              {(val.checked ?? val) && (
+                                <input
+                                  type="text"
+                                  value={historyEdit.family_history[key]?.notes ?? ''}
+                                  onChange={e => setHistoryEdit((h: any) => ({
+                                    ...h,
+                                    family_history: {
+                                      ...h.family_history,
+                                      [key]: { ...h.family_history[key], notes: e.target.value }
+                                    }
+                                  }))}
+                                  placeholder="Notes..."
+                                  className="mt-1 w-full px-2 py-1 bg-white border border-zinc-200 rounded text-xs outline-none focus:border-emerald-400"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setHistoryEdit(null); setHistoryError(''); }} className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg text-xs font-medium transition-colors">Cancel</button>
+                      <button onClick={handleHistorySave} disabled={historySaving} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1">
+                        {historySaving && <Loader2 className="w-3 h-3 animate-spin" />}
+                        <Save className="w-3 h-3" /> Save History
+                      </button>
                     </div>
                   </div>
-                  <div className="border border-zinc-200 rounded-xl p-4">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Family History</h4>
-                    <div className="space-y-1.5">
-                      {Object.entries(mh.family_history || {}).map(([key, val]: any) => (
-                        <div key={key} className={`flex items-center gap-2 text-sm ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
-                          <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
-                            {val && <span className="text-white text-[8px]">✓</span>}
-                          </span>
-                          {fhLabels[key] || key}
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="border border-zinc-200 rounded-xl p-4">
+                      <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Past Medical History</h4>
+                      <div className="space-y-1.5">
+                        {Object.entries(mh.past_medical || {}).map(([key, val]: any) => (
+                          <div key={key}>
+                            <div className={`flex items-center gap-2 text-sm ${val.checked ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                              <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val.checked ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                                {val.checked && <span className="text-white text-[8px]">✓</span>}
+                              </span>
+                              {pmLabels[key] || key}
+                            </div>
+                            {val.checked && val.notes && <p className="text-xs text-zinc-500 ml-5 mt-0.5">{val.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="border border-zinc-200 rounded-xl p-4">
+                        <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Maintenance Medications</h4>
+                        <p className="text-sm text-zinc-700 whitespace-pre-wrap">{mh.maintenance_medications_text || '—'}</p>
+                        {mh.maintenance_medications_image_path && (
+                          <img src={`/${mh.maintenance_medications_image_path}`} alt="Medication" className="mt-2 rounded-lg max-h-32 object-contain" />
+                        )}
+                      </div>
+                      <div className="border border-zinc-200 rounded-xl p-4">
+                        <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Travel History</h4>
+                        <p className="text-sm text-zinc-700 whitespace-pre-wrap">{mh.travel_history || '—'}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="border border-zinc-200 rounded-xl p-4">
+                        <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Personal / Social History</h4>
+                        <div className="space-y-1.5">
+                          {Object.entries(mh.personal_social_history || {}).map(([key, val]: any) => (
+                            <div key={key} className={`flex items-center gap-2 text-sm ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                              <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                                {val && <span className="text-white text-[8px]">✓</span>}
+                              </span>
+                              {psLabels[key] || key}
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                      <div className="border border-zinc-200 rounded-xl p-4">
+                        <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-3">Family History</h4>
+                        <div className="space-y-1.5">
+                          {Object.entries(mh.family_history || {}).map(([key, val]: any) => (
+                            <div key={key} className={`flex items-center gap-2 text-sm ${val ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                              <span className={`w-3 h-3 border rounded flex-shrink-0 flex items-center justify-center ${val ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300'}`}>
+                                {val && <span className="text-white text-[8px]">✓</span>}
+                              </span>
+                              {fhLabels[key] || key}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -444,15 +832,6 @@ ${records.length ? `
         )}
       </div>
 
-      {showEditModal && (
-        <EditPatientModal
-          patient={patient}
-          token={token}
-          onClose={() => setShowEditModal(false)}
-          onSaved={() => { loadData(); onRefresh(); setShowEditModal(false); }}
-        />
-      )}
-
       {showProcedureModal && (
         <ProcedureModal
           token={token}
@@ -460,6 +839,50 @@ ${records.length ? `
           onClose={() => setShowProcedureModal(false)}
           onSaved={loadData}
         />
+      )}
+
+      {/* Archive patient confirmation modal */}
+      {showArchiveConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <Archive className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">Archive Patient?</h3>
+                <p className="text-xs text-zinc-500 mt-0.5">{patient.full_name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-zinc-600 mb-1">
+              This patient will be hidden from the directory and queue.
+            </p>
+            <p className="text-xs text-zinc-400 mb-5">
+              The admin can restore or permanently delete them from the Admin Panel.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowArchiveConfirm(false)}
+                className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowArchiveConfirm(false);
+                  try {
+                    await api(`/api/patients/${patient.id}`, { method: 'DELETE' }, token);
+                    onRefresh();
+                    onClose();
+                  } catch (err) { alert((err as Error).message); }
+                }}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors"
+              >
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirmation modal */}

@@ -30,7 +30,6 @@ const generateToken = (userId: string, email: string, role: string = 'staff') =>
     { expiresIn: JWT_EXPIRES_IN }
   );
 };
-
 // Helper: Generate temporary token for MFA
 const generateTempToken = (userId: string) => {
   return jwt.sign(
@@ -145,11 +144,28 @@ export default function initAuthRoutes(pool: Pool) {
     }
 
     try {
-      // Find user
-      const result = await pool.query(
-        'SELECT * FROM admin_users WHERE email = $1',
-        [email.toLowerCase()]
-      );
+      // Support "admin" keyword as a special username shortcut
+      const identifier = email.trim().toLowerCase();
+      const isAdminKeyword = identifier === 'admin';
+      const isSuperAdminKeyword = identifier === 'adminabcare';
+
+      // Find user — by keyword shortcuts or by email
+      let result;
+      if (isSuperAdminKeyword) {
+        // Direct lookup by the superadmin's fixed email
+        result = await pool.query(
+          `SELECT * FROM admin_users WHERE email = 'adminabcare@abclinic.local' AND role = 'superadmin' LIMIT 1`
+        );
+      } else if (isAdminKeyword) {
+        result = await pool.query(
+          `SELECT * FROM admin_users WHERE LOWER(email) LIKE '%admin%' AND role = 'admin' ORDER BY created_at ASC LIMIT 1`
+        );
+      } else {
+        result = await pool.query(
+          'SELECT * FROM admin_users WHERE email = $1',
+          [identifier]
+        );
+      }
 
       const user = result.rows[0];
 
@@ -164,8 +180,9 @@ export default function initAuthRoutes(pool: Pool) {
         });
       }
 
-      // Verify password
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      // Verify password — superadmin with no password set uses empty string
+      const passwordToCheck = password || '';
+      const isValidPassword = await bcrypt.compare(passwordToCheck, user.password_hash);
 
       if (!isValidPassword) {
         // Increment failed attempts
@@ -565,7 +582,7 @@ export default function initAuthRoutes(pool: Pool) {
 
     try {
       const result = await pool.query(
-        'SELECT id, email, name, role, mfa_enabled, created_at, last_login, preferences FROM admin_users WHERE id = $1',
+        'SELECT id, email, name, display_name, role, mfa_enabled, created_at, last_login, preferences FROM admin_users WHERE id = $1',
         [userId]
       );
 
@@ -779,6 +796,145 @@ export default function initAuthRoutes(pool: Pool) {
       console.error('Signup MFA verify error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
+  });
+
+  // PATCH /api/auth/change-password — any authenticated user can change their own password
+  router.patch('/change-password', authenticateToken, async (req: Request, res: Response) => {
+    const userId = (req as any).user.userId;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!newPassword) return res.status(400).json({ error: 'newPassword is required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    try {
+      const result = await pool.query('SELECT password_hash, role FROM admin_users WHERE id = $1', [userId]);
+      const user = result.rows[0];
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Superadmin with no password set can skip current password check
+      const isSuperAdminNoPassword = user.role === 'superadmin' && currentPassword === '';
+      if (!isSuperAdminNoPassword) {
+        if (!currentPassword) return res.status(400).json({ error: 'currentPassword is required' });
+        const valid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+
+      const hash = await bcrypt.hash(newPassword, 12);
+      await pool.query('UPDATE admin_users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2', [hash, userId]);
+      res.json({ success: true, message: 'Password updated successfully' });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // PATCH /api/auth/display-name — any authenticated user can update their display name
+  router.patch('/display-name', authenticateToken, async (req: Request, res: Response) => {
+    const userId = (req as any).user.userId;
+    const { display_name } = req.body;
+    if (!display_name?.trim()) return res.status(400).json({ error: 'display_name is required' });
+    try {
+      await pool.query('UPDATE admin_users SET display_name = $1, name = $1 WHERE id = $2', [display_name.trim(), userId]);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ── Superadmin-only user management endpoints ──────────────────────────
+
+  const requireSuperAdmin = (req: Request, res: Response, next: Function) => {
+    if ((req as any).user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Superadmin access required' });
+    }
+    next();
+  };
+
+  // GET /api/auth/users — list all accounts (superadmin only)
+  router.get('/users', authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        'SELECT id, email, name, display_name, role, mfa_enabled, created_at, last_login FROM admin_users ORDER BY created_at ASC'
+      );
+      res.json(result.rows);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // DELETE /api/auth/users/:id — delete a user account (superadmin only, cannot delete self)
+  router.delete('/users/:id', authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+    const requesterId = (req as any).user.userId;
+    if (req.params.id === requesterId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    if (req.params.id === 'superadmin-001') {
+      return res.status(400).json({ error: 'Cannot delete the primary superadmin account' });
+    }
+    try {
+      const r = await pool.query('SELECT name, role FROM admin_users WHERE id = $1', [req.params.id]);
+      if (!r.rows[0]) return res.status(404).json({ error: 'User not found' });
+      await pool.query('DELETE FROM admin_users WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // PATCH /api/auth/users/:id/reset-password — superadmin resets any user's password
+  router.patch('/users/:id/reset-password', authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'newPassword must be at least 8 characters' });
+    }
+    try {
+      const hash = await bcrypt.hash(newPassword, 12);
+      await pool.query('UPDATE admin_users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2', [hash, req.params.id]);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // GET /api/auth/google-whitelist — get current whitelist (superadmin only)
+  router.get('/google-whitelist', authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+    const emails = process.env.GOOGLE_ALLOWED_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
+    res.json({ emails });
+  });
+
+  // PUT /api/auth/google-whitelist — update whitelist (superadmin only)
+  // Updates the in-memory env var AND writes to .env file
+  router.put('/google-whitelist', authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+    const { emails } = req.body;
+    if (!Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
+
+    const cleaned = emails.map((e: string) => e.trim().toLowerCase()).filter(Boolean);
+
+    // Update in-memory immediately (takes effect for new logins right away)
+    process.env.GOOGLE_ALLOWED_EMAILS = cleaned.join(',');
+
+    // Persist to .env file so it survives restarts
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const envPath = path.resolve('.env');
+      let envContent = fs.readFileSync(envPath, 'utf8');
+
+      if (envContent.includes('GOOGLE_ALLOWED_EMAILS=')) {
+        envContent = envContent.replace(
+          /^GOOGLE_ALLOWED_EMAILS=.*$/m,
+          `GOOGLE_ALLOWED_EMAILS=${cleaned.join(',')}`
+        );
+      } else {
+        envContent += `\nGOOGLE_ALLOWED_EMAILS=${cleaned.join(',')}`;
+      }
+
+      fs.writeFileSync(envPath, envContent, 'utf8');
+    } catch (err) {
+      console.error('Could not write .env file:', err);
+      // Still return success since in-memory update worked
+    }
+
+    res.json({ success: true, emails: cleaned });
   });
 
   return router;

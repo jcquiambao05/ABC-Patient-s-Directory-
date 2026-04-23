@@ -53,11 +53,12 @@ export default function DashboardPage({ token }: { token: string }) {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 bg-zinc-50">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-zinc-900">Daily Dashboard</h1>
-        {/* Date range filter */}
-        <div className="flex items-center gap-2">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-zinc-50">
+      {/* Header + filter — stacks on mobile */}
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 mb-3">Daily Dashboard</h1>
+        {/* Date range filter — wraps on mobile */}
+        <div className="flex flex-wrap items-center gap-2">
           {(['today', 'week', 'month', 'custom'] as Range[]).map(r => (
             <button key={r} onClick={() => setRange(r)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${range === r ? 'bg-emerald-500 text-white' : 'bg-white border border-zinc-200 text-zinc-600 hover:border-emerald-400'}`}>
@@ -67,24 +68,24 @@ export default function DashboardPage({ token }: { token: string }) {
         </div>
       </div>
 
-      {/* Custom date range inputs */}
+      {/* Custom date range inputs — stacks on mobile */}
       {range === 'custom' && (
-        <div className="flex items-center gap-3 mb-5 bg-white border border-zinc-200 rounded-xl px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 mb-4 bg-white border border-zinc-200 rounded-xl px-4 py-3">
           <span className="text-sm text-zinc-500">From</span>
           <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-            className="px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" />
+            className="flex-1 min-w-0 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" />
           <span className="text-sm text-zinc-500">to</span>
           <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-            className="px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" />
-          <button onClick={load} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium">Apply</button>
+            className="flex-1 min-w-0 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" />
+          <button onClick={load} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium w-full sm:w-auto">Apply</button>
         </div>
       )}
 
-      <div className={`grid grid-cols-5 gap-4 mb-8 transition-opacity ${loading ? 'opacity-50' : ''}`}>
+      <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8 transition-opacity ${loading ? 'opacity-50' : ''}`}>
         {cards.map(c => (
-          <div key={c.label} className={`${c.bg} rounded-2xl p-6`}>
-            <p className="text-sm text-zinc-500 mb-1">{c.label}</p>
-            <p className={`text-4xl font-bold ${c.color}`}>{c.value}</p>
+          <div key={c.label} className={`${c.bg} rounded-2xl p-4 md:p-6`}>
+            <p className="text-xs md:text-sm text-zinc-500 mb-1">{c.label}</p>
+            <p className={`text-3xl md:text-4xl font-bold ${c.color}`}>{c.value}</p>
           </div>
         ))}
       </div>
