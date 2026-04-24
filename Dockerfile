@@ -1,23 +1,11 @@
-# ABCare OmniFlow — Production Dockerfile
+# ABCare OmniFlow — Production Dockerfile (Cloud — OCR disabled)
 FROM node:20-alpine
 
-# System dependencies: Python (OCR), Tesseract, curl
+# Minimal system dependencies for cloud deployment
 RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    py3-flask \
-    py3-pillow \
-    tesseract-ocr \
-    tesseract-ocr-data-eng \
-    postgresql-client \
     curl \
-    bash
-
-# Install Python OCR dependencies
-RUN pip3 install --no-cache-dir --break-system-packages \
-    pytesseract \
-    flask-cors \
-    google-generativeai
+    bash \
+    postgresql-client
 
 WORKDIR /app
 
@@ -42,6 +30,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:3000/api/health || exit 1
 
-# Start both OCR service and web app
-# Uses sh -c with & to run OCR in background, then start the main server
-CMD ["sh", "-c", "python3 ocr_service_simple.py &\nnpx tsx server.ts"]
+# Start the web app only (OCR disabled for cloud deployment)
+CMD ["sh", "-c", "npx tsx server.ts"]

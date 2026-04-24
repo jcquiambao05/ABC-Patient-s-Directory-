@@ -3,12 +3,17 @@ import { createServer as createViteServer } from "vite";
 import pkg from 'pg';
 const { Pool } = pkg;
 import path from "path";
+import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import fs from 'fs';
 import crypto from 'crypto';
+
+// ESM __dirname polyfill (required when "type": "module" in package.json)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -491,97 +496,13 @@ async function startServer() {
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 
-  // ── AI Extract Data (extraction only, no creation) ─────────────────────
-  app.post("/api/patients/ai-extract", authenticateToken, requireRole('staff'), async (req, res) => {
-    const { imageData } = req.body;
-    if (!imageData) return res.status(400).json({ error: 'Image data is required' });
-
-    const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const VISION_MODEL = process.env.VISION_MODEL || 'llava';
-
-    // Strip data URL prefix if present
-    const base64 = imageData.replace(/^data:image\/\w+;base64,/, '');
-
-    const prompt = `This is a medical patient chart form. Extract the following fields and return ONLY valid JSON with no explanation or markdown:
-{
-  "patient_name": "full name or null",
-  "age": number or null,
-  "gender": "Male or Female or Other or null",
-  "date_of_birth": "YYYY-MM-DD format or null",
-  "civil_status": "Single or Married or Widowed or null",
-  "address": "full address or null",
-  "contact_number": "phone number or null",
-  "occupation": "occupation or null",
-  "referred_by": "referring person or null",
-  "diagnosis": "diagnosis or assessment or null",
-  "visit_date": "YYYY-MM-DD format or null",
-  "chief_complaint": "main complaint or null"
-}
-If a field is not visible or unclear, use null. Do not guess or invent data.`;
-
-    try {
-      const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: VISION_MODEL,
-          stream: false,
-          messages: [{ role: 'user', content: prompt, images: [base64] }]
-        }),
-        signal: AbortSignal.timeout(120000),
-      });
-
-      if (!ollamaRes.ok) throw new Error(`Vision model returned ${ollamaRes.status}`);
-      const data = await ollamaRes.json() as any;
-      const raw = data?.message?.content || '';
-
-      // Extract JSON from response (model may wrap in markdown)
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return res.status(422).json({ error: 'Could not parse extracted data', raw });
-
-      const extracted = JSON.parse(jsonMatch[0]);
-      res.json({ success: true, extracted_data: extracted, raw_text: raw });
-    } catch (err: any) {
-      if (err?.name === 'TimeoutError') return res.status(504).json({ error: 'Vision model timed out. Try a smaller image.' });
-      res.status(503).json({ error: 'Vision model unavailable. Ensure Ollama is running with llava.' });
-    }
+  // ── AI Extract / AI Upload — DISABLED (no Ollama/OCR on cloud) ───────────
+  app.post("/api/patients/ai-extract", authenticateToken, requireRole('staff'), (_, res) => {
+    res.status(503).json({ error: 'AI Upload is disabled on this deployment. Add patients manually.' });
   });
 
-  // ── AI Upload Entry (new schema) ───────────────────────────────────────
-  app.post("/api/patients/ai-create", authenticateToken, requireRole('staff'), async (req, res) => {
-    const { imageData } = req.body;
-    if (!imageData) return res.status(400).json({ error: 'Image data is required' });
-    try {
-      let ocrResponse: Response;
-      try {
-        ocrResponse = await fetch('http://localhost:5000/process', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageData, template: 'patient_chart' })
-        });
-      } catch { return res.status(503).json({ error: 'OCR service unavailable. Ensure it is running on port 5000.' }); }
-
-      if (!ocrResponse.ok) return res.status(500).json({ error: 'OCR processing failed' });
-      const ocrResult = await ocrResponse.json();
-      if (!ocrResult.success || !ocrResult.full_text?.trim()) return res.status(400).json({ error: 'No text extracted from image' });
-
-      const d = ocrResult.extracted_data;
-      const fullName = d.patient_name || 'Unknown Patient';
-
-      const pRes = await pool.query(`
-        INSERT INTO patients (full_name, gender, date_of_birth, contact_number, address)
-        VALUES ($1,$2,$3,$4,$5) RETURNING *
-      `, [fullName, d.gender||null, d.date_of_birth||null, d.phone||null, d.address||null]);
-      const patient = pRes.rows[0];
-
-      await pool.query('INSERT INTO patient_medical_history (patient_id) VALUES ($1)', [patient.id]);
-
-      const crRes = await pool.query(`
-        INSERT INTO consultation_records (patient_id, date, assessment_plan, raw_ocr_text, confidence_score)
-        VALUES ($1,$2,$3,$4,$5) RETURNING *
-      `, [patient.id, d.visit_date||new Date().toISOString().split('T')[0], d.diagnosis||null, ocrResult.full_text, ocrResult.stats?.avg_confidence||0]);
-
-      res.json({ success: true, patient_id: patient.id, chart_id: crRes.rows[0].id, patient_data: patient });
-    } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  app.post("/api/patients/ai-create", authenticateToken, requireRole('staff'), (_, res) => {
+    res.status(503).json({ error: 'AI Upload is disabled on this deployment. Add patients manually.' });
   });
 
   // ── Appointments ───────────────────────────────────────────────────────
@@ -854,14 +775,12 @@ Be professional, concise, and helpful. You are a clinic tool, not a general assi
     }
   });
 
-  // ── OCR health/templates ───────────────────────────────────────────────
-  app.get("/api/ocr/health", authenticateToken, async (_, res) => {
-    try { const r = await fetch('http://localhost:5000/health'); res.json(await r.json()); }
-    catch { res.status(503).json({ status: 'unavailable' }); }
+  // ── OCR health/templates — DISABLED on cloud ──────────────────────────
+  app.get("/api/ocr/health", authenticateToken, (_, res) => {
+    res.json({ status: 'disabled', message: 'OCR service not running on this deployment' });
   });
-  app.get("/api/ocr/templates", authenticateToken, async (_, res) => {
-    try { const r = await fetch('http://localhost:5000/templates'); res.json(await r.json()); }
-    catch { res.status(503).json({ error: 'OCR service unavailable' }); }
+  app.get("/api/ocr/templates", authenticateToken, (_, res) => {
+    res.json([]);
   });
 
   // ── Vite / static ──────────────────────────────────────────────────────
