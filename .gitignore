@@ -55,7 +55,7 @@ db-config.json
 # 💾 DATABASE FILES
 # ============================================
 # SQL dumps and backups (may contain sensitive patient data)
-*.sql
+# *.sql  ← REMOVED: schema files need to be in git
 *.dump
 *.backup
 *.bak
