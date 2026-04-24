@@ -37,22 +37,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Ollama (Local AI) ────────────────────────────────────────────────────
-  ollama:
-    image: ollama/ollama:latest
-    container_name: abccare-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 8 && ollama pull llama3.2 && ollama pull llava && wait"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 180s
+  # ── Ollama (Local AI) — DISABLED FOR CLOUD DEPLOYMENT ──────────────────
+  # Uncomment this section only if running on a GPU instance
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: abccare-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 8 && ollama pull llama3.2 && ollama pull llava && wait"]
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 10
+  #     start_period: 180s
 
   # ── ABCare Web Application ───────────────────────────────────────────────
   app:
@@ -83,8 +84,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+      # ollama:
+      #   condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
@@ -95,10 +96,10 @@ services:
 volumes:
   postgres_data:
     driver: local
-  ollama_data:
-    driver: local
   uploads_data:
     driver: local
+  # ollama_data:  # Uncomment if using local AI
+  #   driver: local
 
 networks:
   default:
