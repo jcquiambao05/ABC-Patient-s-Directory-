@@ -1,202 +1,152 @@
 #!/bin/bash
+# ABCare OmniFlow — Start Script (Post-Overhaul)
+# Starts: Web App (Node + Vite), Ollama AI (optional), OCR Service (optional)
 
-# ABC Patient Directory AI - Start Script
-# Starts OCR service, Ollama (llama3.2), and web application
-
-echo "Starting ABCare Clinic Management..."
-
-# Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-# Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Function to check port
-check_port() {
-    lsof -i:$1 > /dev/null 2>&1
-}
+check_port() { lsof -i:"$1" > /dev/null 2>&1; }
 
-# ── Step 1: Check Ollama ───────────────────────────────────────────────────
 echo ""
-echo -e "${BLUE}🤖 Checking Ollama (llama3.2)...${NC}"
-
-if ! command -v ollama &> /dev/null; then
-    echo -e "${RED}❌ Ollama not installed. Install from https://ollama.com${NC}"
-    echo -e "${YELLOW}⚠️  Chatbot will be unavailable but the rest of the app will work.${NC}"
-else
-    # Check if Ollama API is already responding
-    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Ollama is already running${NC}"
-    else
-        echo -e "${BLUE}   Starting Ollama service...${NC}"
-        ollama serve > /dev/null 2>&1 &
-        OLLAMA_PID=$!
-        echo $OLLAMA_PID > "$SCRIPT_DIR/.ollama_pid"
-        # Wait up to 10 seconds for Ollama to be ready
-        for i in {1..10}; do
-            sleep 1
-            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-                echo -e "${GREEN}✅ Ollama started (PID: $OLLAMA_PID)${NC}"
-                break
-            fi
-            if [ $i -eq 10 ]; then
-                echo -e "${YELLOW}⚠️  Ollama took too long to start. Chatbot may be unavailable.${NC}"
-            fi
-        done
-    fi
-
-    # Check if llama3.2 model is available
-    if ollama list 2>/dev/null | grep -q "llama3.2"; then
-        echo -e "${GREEN}✅ llama3.2 model is available${NC}"
-    else
-        echo -e "${YELLOW}⚠️  llama3.2 not found. Pulling now (2GB download)...${NC}"
-        ollama pull llama3.2
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✅ llama3.2 downloaded successfully${NC}"
-        else
-            echo -e "${RED}❌ Failed to pull llama3.2. Chatbot will be unavailable.${NC}"
-        fi
-    fi
-fi
-
-# Check if OCR service file exists in current directory
-if [ ! -f "$SCRIPT_DIR/ocr_service_simple.py" ]; then
-    echo -e "${RED}❌ OCR service not found: ocr_service_simple.py${NC}"
-    echo "Make sure you're in the project directory"
-    exit 1
-fi
-
-# Check if medical_chart_templates.json exists
-if [ ! -f "$SCRIPT_DIR/medical_chart_templates.json" ]; then
-    echo -e "${RED}❌ Templates file not found: medical_chart_templates.json${NC}"
-    exit 1
-fi
-
-# Check Python dependencies
-echo -e "${BLUE}🔍 Checking Python dependencies...${NC}"
-python3 -c "import flask" 2>/dev/null || {
-    echo -e "${RED}❌ Flask not installed${NC}"
-    echo "Install with: sudo apt-get install python3-flask python3-flask-cors"
-    exit 1
-}
-
-python3 -c "import pytesseract" 2>/dev/null || {
-    echo -e "${RED}❌ pytesseract not installed${NC}"
-    echo "Install with: pip3 install pytesseract"
-    exit 1
-}
-
-python3 -c "from PIL import Image" 2>/dev/null || {
-    echo -e "${RED}❌ Pillow not installed${NC}"
-    echo "Install with: sudo apt-get install python3-pil"
-    exit 1
-}
-
-echo -e "${GREEN}✅ All Python dependencies installed${NC}"
-
-# Start OCR Service
-if check_port 5000; then
-    echo -e "${YELLOW}⚠️  Port 5000 in use, stopping existing process...${NC}"
-    lsof -ti:5000 | xargs kill -9 2>/dev/null
-    sleep 2
-fi
-
-echo -e "${BLUE}🔧 Starting OCR Service (Tesseract + Simple Mode)...${NC}"
-cd "$SCRIPT_DIR"
-nohup python3 ocr_service_simple.py > ocr_service.log 2>&1 &
-OCR_PID=$!
-echo $OCR_PID > "$SCRIPT_DIR/.ocr_pid"
-echo -e "${GREEN}✅ OCR Service started (PID: $OCR_PID)${NC}"
-sleep 3
-
-# Verify OCR service is running
-if ! check_port 5000; then
-    echo -e "${RED}❌ OCR service failed to start${NC}"
-    echo "Check ocr_service.log for errors"
-    cat ocr_service.log | tail -20
-    exit 1
-fi
-
-# Test OCR service health
-OCR_HEALTH=$(curl -s http://localhost:5000/health 2>/dev/null)
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ OCR service health check passed${NC}"
-else
-    echo -e "${YELLOW}⚠️  OCR service health check failed (but service is running)${NC}"
-fi
-
-# Check Node.js and npm
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}   ABCare OmniFlow — Clinic Management System${NC}"
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${BLUE}🔍 Checking Node.js dependencies...${NC}"
-if ! command -v node &> /dev/null; then
-    echo -e "${RED}❌ Node.js not installed${NC}"
-    exit 1
-fi
 
-if ! command -v npm &> /dev/null; then
-    echo -e "${RED}❌ npm not installed${NC}"
-    exit 1
-fi
+OLLAMA_STATUS="skipped"
+OCR_STATUS="skipped"
+WEBAPP_STATUS="starting"
 
-if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
-    echo -e "${YELLOW}⚠️  node_modules not found, running npm install...${NC}"
-    npm install
-fi
-
-echo -e "${GREEN}✅ Node.js dependencies ready${NC}"
-
-# Start Web Application
+# ── Step 1: Kill anything on port 3000 first ──────────────────────────────
 if check_port 3000; then
-    echo -e "${YELLOW}⚠️  Port 3000 in use, stopping existing process...${NC}"
-    lsof -ti:3000 | xargs kill -9 2>/dev/null
-    sleep 2
+  echo -e "${YELLOW}   Clearing port 3000...${NC}"
+  lsof -ti:3000 | xargs kill -9 2>/dev/null
+  sleep 2
 fi
 
+# ── Step 2: Ollama AI (optional) ──────────────────────────────────────────
+echo -e "${BLUE}[1/3] AI Assistant (Ollama)${NC}"
+if ! command -v ollama &> /dev/null; then
+  echo -e "      ${YELLOW}⚠  Ollama not installed — chatbot unavailable${NC}"
+  OLLAMA_STATUS="not installed"
+else
+  if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+    echo -e "      ${GREEN}✓  Ollama already running${NC}"
+    OLLAMA_STATUS="running"
+  else
+    echo -e "      ${BLUE}   Starting Ollama...${NC}"
+    ollama serve > /dev/null 2>&1 &
+    OLLAMA_PID=$!
+    echo $OLLAMA_PID > "$SCRIPT_DIR/.ollama_pid"
+    for i in {1..10}; do
+      sleep 1
+      if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        echo -e "      ${GREEN}✓  Ollama started (PID: $OLLAMA_PID)${NC}"
+        OLLAMA_STATUS="started"
+        break
+      fi
+      [ "$i" -eq 10 ] && { echo -e "      ${YELLOW}⚠  Ollama slow to start${NC}"; OLLAMA_STATUS="slow"; }
+    done
+  fi
+  if ollama list 2>/dev/null | grep -q "llama3.2"; then
+    echo -e "      ${GREEN}✓  llama3.2 model ready${NC}"
+  else
+    echo -e "      ${YELLOW}⚠  llama3.2 not found — pulling now (~2GB)...${NC}"
+    ollama pull llama3.2 && echo -e "      ${GREEN}✓  llama3.2 downloaded${NC}" \
+      || echo -e "      ${RED}✗  Pull failed${NC}"
+  fi
+fi
 echo ""
-echo -e "${BLUE}🌐 Starting Web Application...${NC}"
-cd "$SCRIPT_DIR"
-nohup npm run dev > webapp.log 2>&1 &
+
+# ── Step 3: OCR Service (optional) ────────────────────────────────────────
+echo -e "${BLUE}[2/3] OCR Service (chart pre-fill)${NC}"
+OCR_FILE="$SCRIPT_DIR/ocr_service.py"
+if [ ! -f "$OCR_FILE" ]; then
+  echo -e "      ${YELLOW}⚠  ocr_service.py not found — chart pre-fill unavailable${NC}"
+  OCR_STATUS="file missing"
+else
+  MISSING_DEPS=""
+  python3 -c "import flask" 2>/dev/null        || MISSING_DEPS="$MISSING_DEPS flask"
+  python3 -c "import pytesseract" 2>/dev/null  || MISSING_DEPS="$MISSING_DEPS pytesseract"
+  python3 -c "from PIL import Image" 2>/dev/null || MISSING_DEPS="$MISSING_DEPS Pillow"
+  if [ -n "$MISSING_DEPS" ]; then
+    echo -e "      ${YELLOW}⚠  Missing Python packages:${MISSING_DEPS} — OCR skipped${NC}"
+    OCR_STATUS="deps missing"
+  else
+    check_port 5000 && { lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 1; }
+    nohup python3 "$OCR_FILE" > "$SCRIPT_DIR/ocr_service.log" 2>&1 &
+    OCR_PID=$!
+    echo $OCR_PID > "$SCRIPT_DIR/.ocr_pid"
+    sleep 3
+    if check_port 5000; then
+      echo -e "      ${GREEN}✓  OCR service started (PID: $OCR_PID)${NC}"
+      OCR_STATUS="running (PID: $OCR_PID)"
+    else
+      echo -e "      ${YELLOW}⚠  OCR failed to start — check ocr_service.log${NC}"
+      OCR_STATUS="failed"
+    fi
+  fi
+fi
+echo ""
+
+# ── Step 4: Web Application (required) ────────────────────────────────────
+echo -e "${BLUE}[3/3] Web Application${NC}"
+if ! command -v node &> /dev/null; then
+  echo -e "      ${RED}✗  Node.js not installed${NC}"; exit 1
+fi
+if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+  echo -e "      ${YELLOW}   Installing dependencies...${NC}"
+  npm install --prefix "$SCRIPT_DIR" || { echo -e "      ${RED}✗  npm install failed${NC}"; exit 1; }
+fi
+
+nohup npm run dev --prefix "$SCRIPT_DIR" > "$SCRIPT_DIR/webapp.log" 2>&1 &
 WEBAPP_PID=$!
 echo $WEBAPP_PID > "$SCRIPT_DIR/.webapp_pid"
-echo -e "${GREEN}✅ Web Application started (PID: $WEBAPP_PID)${NC}"
-sleep 5
 
-# Verify web app is running
-if ! check_port 3000; then
-    echo -e "${RED}❌ Web application failed to start${NC}"
-    echo "Check webapp.log for errors"
-    cat webapp.log | tail -20
+echo -e "      ${BLUE}   Waiting for app to be ready...${NC}"
+for i in {1..20}; do
+  sleep 1
+  if python3 -c "import socket; s=socket.socket(); s.settimeout(1); r=s.connect_ex(('127.0.0.1',3000)); s.close(); exit(0 if r==0 else 1)" 2>/dev/null; then
+    echo -e "      ${GREEN}✓  Web app started (PID: $WEBAPP_PID)${NC}"
+    WEBAPP_STATUS="running (PID: $WEBAPP_PID)"
+    break
+  fi
+  if [ "$i" -eq 20 ]; then
+    echo -e "      ${RED}✗  Web app did not start in time${NC}"
+    echo -e "      ${RED}   Check webapp.log for errors:${NC}"
+    tail -20 "$SCRIPT_DIR/webapp.log"
     exit 1
-fi
+  fi
+done
 
-# Test web app health
-WEBAPP_HEALTH=$(curl -s http://localhost:3000/api/health 2>/dev/null)
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Web application health check passed${NC}"
+# ── Summary ────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${GREEN}   ✓  ABCare OmniFlow is ready!${NC}"
+echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "   ${BOLD}Open in browser:${NC}  http://localhost:3000"
+echo ""
+echo -e "   ${BOLD}Service Status:${NC}"
+echo -e "   ├─ Web App     ${GREEN}●${NC}  $WEBAPP_STATUS"
+if [[ "$OLLAMA_STATUS" == "running" || "$OLLAMA_STATUS" == "started" ]]; then
+  echo -e "   ├─ AI Chat     ${GREEN}●${NC}  $OLLAMA_STATUS"
 else
-    echo -e "${YELLOW}⚠️  Web application health check failed (but service is running)${NC}"
+  echo -e "   ├─ AI Chat     ${YELLOW}○${NC}  $OLLAMA_STATUS"
 fi
-
+if [[ "$OCR_STATUS" == running* ]]; then
+  echo -e "   └─ OCR Scan    ${GREEN}●${NC}  $OCR_STATUS"
+else
+  echo -e "   └─ OCR Scan    ${YELLOW}○${NC}  $OCR_STATUS"
+fi
 echo ""
-echo -e "${GREEN} ABCare Clinic Management is ready!${NC}"
-echo ""
-echo " Access Points:"
-echo "    Web App:      http://localhost:3000"
-echo "    OCR Service:  http://localhost:5000"
-echo "    Ollama API:   http://localhost:11434"
-echo ""
-echo "Process IDs:"
-echo "   OCR Service: $OCR_PID (saved to .ocr_pid)"
-echo "   Web App: $WEBAPP_PID (saved to .webapp_pid)"
-echo ""
-echo " Logs:"
-echo "   OCR: tail -f ocr_service.log"
-echo "   Web: tail -f webapp.log"
-echo ""
-echo " Stop: ./stop-mediflow.sh"
-echo " Restart: ./restart-mediflow.sh"
+echo -e "   ${BOLD}Logs:${NC}  tail -f webapp.log"
+echo -e "   ${BOLD}Stop:${NC}  ./stop-mediflow.sh"
 echo ""

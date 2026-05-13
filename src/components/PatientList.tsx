@@ -49,7 +49,7 @@ export default function PatientList({
       <header className="p-6 border-b border-zinc-100 bg-white sticky top-0 z-10">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Patient Archives</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Patient Directory</h1>
             <p className="text-sm text-zinc-500">Organized by Cabinets A-Z</p>
           </div>
           {headerActions ? <div className="flex items-center gap-3">{headerActions}</div> : null}

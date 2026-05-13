@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, Clock, User, Plus, X, Trash2, Loader2, Bell } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Clock, User, Plus, X, Trash2, Loader2, Bell, CheckCircle2, RefreshCw, Settings, List } from 'lucide-react';
 import { api } from '../lib/api';
 import AppointmentModal from './AppointmentModal';
+import DoctorSchedulePanel from './DoctorSchedulePanel';
 
 interface Props {
   token: string;
@@ -41,6 +42,19 @@ export default function CalendarPage({ token, role }: Props) {
   const [newModalDate, setNewModalDate] = useState<string | null>(null);
   const [sendingReminders, setSendingReminders] = useState(false);
   const [reminderMsg, setReminderMsg] = useState('');
+  const [calView, setCalView] = useState<'calendar' | 'schedule'>('calendar');
+
+  // Cancel confirmation modal state
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  // Resend token result modal state
+  const [resendLink, setResendLink] = useState<string | null>(null);
+  const [resendCopied, setResendCopied] = useState(false);
+
+  // Monthly appointments list modal
+  const [showMonthList, setShowMonthList] = useState(false);
+  const [monthListTab, setMonthListTab] = useState<'confirmed' | 'pending' | 'cancelled'>('confirmed');
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -78,12 +92,37 @@ export default function CalendarPage({ token, role }: Props) {
   };
 
   const handleCancelAppointment = async (id: string) => {
-    if (!confirm('Cancel this appointment?')) return;
+    setCancelTarget(id);
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
     try {
-      await api(`/api/appointments/${id}`, { method: 'DELETE' }, token);
+      await api(`/api/appointments/${cancelTarget}`, { method: 'DELETE' }, token);
       if (selectedDate) loadDay(selectedDate);
       loadMonth();
-    } catch (err) { alert((err as Error).message); }
+    } catch (err) { console.error(err); }
+    finally { setCancelling(false); setCancelTarget(null); }
+  };
+
+  const handleMarkAttended = async (id: string) => {
+    try {
+      await api(`/api/appointments/${id}/attend`, { method: 'PATCH', body: '{}' }, token);
+      if (selectedDate) loadDay(selectedDate);
+      loadMonth();
+    } catch (err) { console.error(err); }
+  };
+
+  const handleResendToken = async (id: string) => {
+    try {
+      const result = await api(`/api/appointments/${id}/resend-token`, { method: 'POST', body: '{}' }, token);
+      if (result.confirm_link) {
+        await navigator.clipboard.writeText(result.confirm_link).catch(() => {});
+        setResendLink(result.confirm_link);
+        setResendCopied(true);
+      }
+    } catch (err) { console.error(err); }
   };
 
   const handleSendReminders = async () => {
@@ -119,16 +158,38 @@ export default function CalendarPage({ token, role }: Props) {
   return (
     <div className="flex-1 flex bg-zinc-100 overflow-hidden" style={{ height: '100%' }}>
       {/* Scrollable content area — stacks vertically on mobile */}
-      <div className="flex-1 flex flex-col lg:flex-row lg:items-start justify-center overflow-y-auto p-3 md:p-5 gap-3 md:gap-4 min-h-full">
+      <div className="flex-1 flex flex-col lg:flex-row lg:items-start overflow-y-auto p-3 md:p-5 gap-3 md:gap-4 min-h-full">
 
       {/* Left: Mini navigator + actions — hidden on mobile, shown on lg+ */}
       <div className="hidden lg:flex flex-col gap-4 w-52 flex-shrink-0 sticky top-0">
+        {/* View switcher */}
+        <div className="flex bg-white border border-zinc-200 rounded-xl p-1 gap-1">
+          <button onClick={() => setCalView('calendar')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${calView === 'calendar' ? 'bg-emerald-500 text-white' : 'text-zinc-500 hover:text-zinc-700'}`}>
+            <Calendar className="w-3.5 h-3.5" /> Calendar
+          </button>
+          {(role === 'admin' || role === 'superadmin') && (
+            <button onClick={() => setCalView('schedule')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${calView === 'schedule' ? 'bg-emerald-500 text-white' : 'text-zinc-500 hover:text-zinc-700'}`}>
+              <Settings className="w-3.5 h-3.5" /> Schedule
+            </button>
+          )}
+        </div>
+
         {/* New appointment button */}
         <button
           onClick={() => { setNewModalDate(todayStr); setShowNewModal(true); }}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" /> New Appointment
+        </button>
+
+        {/* View all appointments for this month */}
+        <button
+          onClick={() => setShowMonthList(true)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-zinc-50 border border-zinc-200 text-zinc-700 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+        >
+          <List className="w-4 h-4" /> View All — {MONTHS_SHORT[month]}
         </button>
 
         {/* Mini month navigator */}
@@ -209,7 +270,12 @@ export default function CalendarPage({ token, role }: Props) {
       </div>
 
       {/* Center: Main calendar box — full width on mobile/tablet */}
-      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col w-full lg:w-auto" style={{ minWidth: 0, maxWidth: '820px' }}>
+      {calView === 'schedule' ? (
+        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm flex-1 p-5 md:p-6" style={{ minWidth: 0, maxWidth: '1000px' }}>
+          <DoctorSchedulePanel token={token} role={role} />
+        </div>
+      ) : (
+      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col flex-1" style={{ minWidth: 0, maxWidth: '1000px' }}>
         {/* Calendar header */}
         <div className="px-5 py-3 border-b border-zinc-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -239,7 +305,7 @@ export default function CalendarPage({ token, role }: Props) {
         {/* Calendar grid */}
         <div className="grid grid-cols-7 border-l border-t border-zinc-100 flex-1">
           {Array.from({ length: firstDay }).map((_, i) => (
-            <div key={`empty-${i}`} className="border-r border-b border-zinc-100 min-h-[80px] md:min-h-[130px] bg-zinc-50/40" />
+            <div key={`empty-${i}`} className="border-r border-b border-zinc-100 h-[140px] bg-zinc-50/40" />
           ))}
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1;
@@ -252,7 +318,7 @@ export default function CalendarPage({ token, role }: Props) {
             return (
               <div key={day}
                 onClick={() => handleDayClick(dateStr)}
-                className={`border-r border-b border-zinc-100 min-h-[80px] md:min-h-[130px] p-1 md:p-2 cursor-pointer transition-colors ${
+                className={`border-r border-b border-zinc-100 h-[140px] overflow-hidden p-1 md:p-2 cursor-pointer transition-colors ${
                   isSelected ? 'bg-emerald-50' : isPast ? 'bg-zinc-50/30 hover:bg-zinc-50' : 'hover:bg-zinc-50'
                 }`}>
                 <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1 ${
@@ -275,6 +341,7 @@ export default function CalendarPage({ token, role }: Props) {
           })}
         </div>
       </div>
+      )} {/* end calView === 'calendar' */}
 
       {/* Right: Day detail panel — full width on mobile, fixed width on lg+ */}
       <div className="w-full lg:w-72 flex-shrink-0 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col lg:sticky lg:top-0" style={{ maxHeight: 'calc(100vh - 2.5rem)', minHeight: '200px' }}>
@@ -352,6 +419,20 @@ export default function CalendarPage({ token, role }: Props) {
                           <Clock className="w-2.5 h-2.5" /> {a.appointment_time.slice(0, 5)}
                         </span>
                       )}
+                      {/* Status badge */}
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${
+                        a.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                        a.status === 'pending'   ? 'bg-amber-100 text-amber-700' :
+                        a.status === 'attended'  ? 'bg-blue-100 text-blue-700' :
+                        a.status === 'no_show'   ? 'bg-red-100 text-red-600' :
+                        'bg-zinc-100 text-zinc-500'
+                      }`}>
+                        {a.status === 'confirmed' ? ' Confirmed' :
+                         a.status === 'pending'   ? ' Pending' :
+                         a.status === 'attended'  ? ' Attended' :
+                         a.status === 'no_show'   ? ' No-show' :
+                         a.status}
+                      </span>
                       {freqLabel(a) && (
                         <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full font-medium">{freqLabel(a)}</span>
                       )}
@@ -360,6 +441,24 @@ export default function CalendarPage({ token, role }: Props) {
                       )}
                     </div>
                     {a.notes && <p className="mt-1 text-[10px] text-zinc-400 italic">{a.notes}</p>}
+                    {/* Mark Attended — only for confirmed appointments on today or past dates */}
+                    {a.status === 'confirmed' && a.appointment_date <= todayStr && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleMarkAttended(a.id); }}
+                        className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-semibold transition-colors"
+                      >
+                        <CheckCircle2 className="w-3 h-3" /> Mark Attended
+                      </button>
+                    )}
+                    {/* Resend confirmation link — only for pending appointments */}
+                    {a.status === 'pending' && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleResendToken(a.id); }}
+                        className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-semibold transition-colors"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Resend Confirmation Link
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -376,10 +475,200 @@ export default function CalendarPage({ token, role }: Props) {
           onSaved={() => {
             loadMonth();
             if (selectedDate) loadDay(selectedDate);
-            setShowNewModal(false);
+            // Do NOT close here — AppointmentModal shows the confirmation link screen
+            // and closes itself when the user clicks "Done"
           }}
         />
       )}
+
+      {/* Cancel appointment confirmation modal */}
+      {cancelTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="p-6">
+              <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-red-500" />
+              </div>
+              <h3 className="text-base font-bold text-zinc-900 text-center mb-1">Cancel Appointment?</h3>
+              <p className="text-sm text-zinc-500 text-center mb-6">
+                This appointment will be marked as cancelled. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCancelTarget(null)}
+                  className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Keep It
+                </button>
+                <button
+                  onClick={confirmCancel}
+                  disabled={cancelling}
+                  className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {cancelling && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Yes, Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resend confirmation link modal */}
+      {resendLink && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <RefreshCw className="w-6 h-6 text-amber-600" />
+              </div>
+              <h3 className="text-base font-bold text-zinc-900 text-center mb-1">New Confirmation Link Ready</h3>
+              <p className="text-sm text-zinc-500 text-center mb-4">
+                {resendCopied ? 'Link copied to clipboard.' : 'Send this link to the patient via SMS or messaging app.'}
+              </p>
+              <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 mb-4">
+                <p className="text-xs text-zinc-600 font-mono break-all leading-relaxed">{resendLink}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(resendLink).catch(() => {});
+                    setResendCopied(true);
+                  }}
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  {resendCopied ? <CheckCircle2 className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
+                  {resendCopied ? 'Copied!' : 'Copy Link'}
+                </button>
+                <button
+                  onClick={() => { setResendLink(null); setResendCopied(false); }}
+                  className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Monthly appointments list modal */}
+      {showMonthList && (() => {
+        const confirmed = appointments.filter(a => a.status === 'confirmed' || a.status === 'attended');
+        const pending = appointments.filter(a => a.status === 'pending');
+        const cancelled = appointments.filter(a => a.status === 'cancelled' || a.status === 'no_show');
+
+        const tabData = monthListTab === 'confirmed' ? confirmed : monthListTab === 'pending' ? pending : cancelled;
+
+        const statusBadge = (status: string) => {
+          if (status === 'confirmed') return <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Confirmed</span>;
+          if (status === 'attended') return <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">Attended</span>;
+          if (status === 'pending') return <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-semibold">Pending</span>;
+          if (status === 'cancelled') return <span className="text-[9px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded-full font-semibold">Cancelled</span>;
+          if (status === 'no_show') return <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-semibold">No-show</span>;
+          return null;
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
+                <div>
+                  <h2 className="text-base font-bold text-zinc-900">Appointments — {MONTHS_FULL[month]} {year}</h2>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {confirmed.length} confirmed · {pending.length} pending · {cancelled.length} cancelled/no-show
+                  </p>
+                </div>
+                <button onClick={() => setShowMonthList(false)} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex border-b border-zinc-100">
+                {([
+                  { id: 'confirmed', label: 'Confirmed', count: confirmed.length, color: 'text-emerald-600 border-emerald-500' },
+                  { id: 'pending', label: 'Pending', count: pending.length, color: 'text-amber-600 border-amber-500' },
+                  { id: 'cancelled', label: 'Cancelled / No-show', count: cancelled.length, color: 'text-zinc-500 border-zinc-400' },
+                ] as const).map(tab => (
+                  <button key={tab.id} onClick={() => setMonthListTab(tab.id)}
+                    className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 ${
+                      monthListTab === tab.id ? tab.color : 'text-zinc-400 border-transparent hover:text-zinc-600'
+                    }`}>
+                    {tab.label}
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${
+                      monthListTab === tab.id ? 'bg-zinc-100' : 'bg-zinc-50'
+                    }`}>{tab.count}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* List */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {tabData.length === 0 ? (
+                  <div className="text-center py-12 text-zinc-400">
+                    <Calendar className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No {monthListTab} appointments this month</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {tabData
+                      .slice()
+                      .sort((a, b) => a.appointment_date.localeCompare(b.appointment_date))
+                      .map(a => (
+                        <div key={a.id} className="flex items-center gap-4 p-3 bg-zinc-50 hover:bg-zinc-100 rounded-xl transition-colors">
+                          {/* Date block */}
+                          <div className="w-12 flex-shrink-0 text-center">
+                            <p className="text-[10px] font-bold text-zinc-400 uppercase">
+                              {new Date(a.appointment_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short' })}
+                            </p>
+                            <p className="text-xl font-bold text-zinc-900 leading-none">
+                              {new Date(a.appointment_date + 'T12:00:00').getDate()}
+                            </p>
+                            <p className="text-[10px] text-zinc-400">
+                              {new Date(a.appointment_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                            </p>
+                          </div>
+
+                          {/* Patient avatar */}
+                          <div className="w-9 h-9 rounded-xl bg-zinc-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            {a.profile_photo_path
+                              ? <img src={`/${a.profile_photo_path}`} className="w-full h-full object-cover" alt="" />
+                              : <User className="w-4 h-4 text-zinc-400" />}
+                          </div>
+
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-zinc-900 truncate">{a.patient_name}</p>
+                            <p className="text-xs text-zinc-500 truncate">{a.title}</p>
+                          </div>
+
+                          {/* Time + status */}
+                          <div className="flex-shrink-0 text-right">
+                            {a.appointment_time && (
+                              <p className="text-xs font-medium text-zinc-600 flex items-center gap-1 justify-end">
+                                <Clock className="w-3 h-3" /> {a.appointment_time.slice(0, 5)}
+                              </p>
+                            )}
+                            <div className="mt-0.5">{statusBadge(a.status)}</div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-zinc-100">
+                <button onClick={() => setShowMonthList(false)}
+                  className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors">
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
     </div>
   );

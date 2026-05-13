@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, UserPlus, Search, Upload, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Search, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
 import SignupPage from './SignupPage';
@@ -13,8 +13,8 @@ import ChatPage from './ChatPage';
 import AuditPage from './AuditPage';
 import SettingsPanel from './SettingsPanel';
 import AdminPanel from './AdminPanel';
-import AIUploadPreviewModal from './AIUploadPreviewModal';
 import CalendarPage from './CalendarPage';
+import LoginTransition from './LoginTransition';
 import { api } from '../lib/api';
 import type { Patient } from '../types/index';
 import {
@@ -31,14 +31,13 @@ export default function App() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [activeTab, setActiveTab] = useState('directory');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddingPatient, setIsAddingPatient] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showAIUpload, setShowAIUpload] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
@@ -102,6 +101,7 @@ export default function App() {
       setRole(payload.role || 'staff');
     } catch { setRole('staff'); }
     setIsAuthenticated(true);
+    setIsTransitioning(true); // show the loading transition screen
     // Load preferences from /api/auth/me
     try {
       const meData = await api('/api/auth/me', {}, newToken);
@@ -142,25 +142,6 @@ export default function App() {
 
   useEffect(() => { if (isAuthenticated && token) fetchPatients(); }, [isAuthenticated, token, fetchPatients]);
 
-  const handleAIUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0] || !token) return;
-    setIsProcessing(true);
-    const file = e.target.files[0];
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const result = await api('/api/patients/ai-create', { method: 'POST', body: JSON.stringify({ imageData: reader.result }) }, token);
-        await fetchPatients();
-        if (result.patient_id) {
-          const p = await api(`/api/patients/${result.patient_id}`, {}, token);
-          setSelectedPatient(p);
-        }
-      } catch (err) { alert('AI Upload failed: ' + (err as Error).message); }
-      finally { setIsProcessing(false); }
-    };
-    reader.readAsDataURL(file);
-  };
-
   const filtered = patients.filter(p => p.full_name.toLowerCase().includes(searchQuery.toLowerCase()));
   const grouped = filtered.reduce((acc, p) => {
     // Group by first letter of LAST name (last word in full_name)
@@ -182,7 +163,7 @@ export default function App() {
   const cabinets = Object.keys(grouped).sort();
 
   if (isLoading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+    <div className="min-h-screen bg-white flex items-center justify-center">
       <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
     </div>
   );
@@ -193,6 +174,14 @@ export default function App() {
 
   return (
     <PreferencesContext.Provider value={{ preferences, updatePreferences }}>
+      {/* Post-login transition screen — shown for ~1.4s after successful login */}
+      {isTransitioning && (
+        <LoginTransition
+          userName={displayName}
+          role={role}
+          onDone={() => setIsTransitioning(false)}
+        />
+      )}
       <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900 overflow-hidden" style={{ fontSize: 'var(--app-font-size, 14px)' }}>
         <Sidebar
           activeTab={activeTab}
@@ -213,58 +202,62 @@ export default function App() {
               <motion.div
                 animate={{ width: isExpanded ? 0 : (selectedPatient ? '40%' : '100%'), opacity: isExpanded ? 0 : 1 }}
                 transition={{ duration: 0.35, ease: 'easeInOut' }}
-                className={`flex flex-col border-r border-zinc-200 bg-white overflow-hidden ${selectedPatient ? 'hidden md:flex' : 'flex'}`}
+                className={`flex flex-col bg-zinc-100 overflow-hidden ${selectedPatient ? 'hidden md:flex' : 'flex'}`}
                 style={{ minWidth: 0 }}
               >
-                <header className="p-5 md:p-6 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
-                  <div>
-                    <h1 className="text-xl md:text-2xl font-bold tracking-tight">Patient Archives</h1>
-                    <p className="text-sm text-zinc-500">Organized A–Z</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {role === 'staff' && (
-                      <>
-                        <button onClick={() => setShowAIUpload(true)}
-                          className="bg-blue-500 hover:bg-blue-600 text-white px-2 md:px-3 py-2 rounded-xl flex items-center gap-1.5 text-sm font-medium">
-                          <Upload className="w-4 h-4" />
-                          <span className="hidden sm:inline">AI Upload</span>
-                        </button>
-                        <button onClick={() => setIsAddingPatient(true)}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 md:px-3 py-2 rounded-xl flex items-center gap-1.5 text-sm font-medium">
-                          <UserPlus className="w-4 h-4" />
-                          <span className="hidden sm:inline">New Entry</span>
-                        </button>
-                      </>
-                    )}
-                    {role === 'superadmin' && (
-                      <span className="text-xs text-amber-500 bg-amber-900/20 border border-amber-800/50 px-3 py-1.5 rounded-xl font-medium">
-                        Read-only view
-                      </span>
-                    )}
-                  </div>
-                </header>
-
-                <div className="px-4 md:px-5 py-3 bg-white border-b border-zinc-100">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                    <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search patients..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-zinc-100 rounded-xl text-base outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                {/* Header card */}
+                <div className="px-3 md:px-4 pt-3 md:pt-4 pb-2">
+                  <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 md:px-5 py-3 flex items-center justify-between">
+                    <div>
+                      <h1 className="text-xl md:text-2xl font-bold tracking-tight">Patient Directory</h1>
+                      <p className="text-sm text-zinc-500">Organized A–Z</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {role === 'staff' && (
+                        <>
+                          <button onClick={() => setIsAddingPatient(true)}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 md:px-3 py-2 rounded-xl flex items-center gap-1.5 text-sm font-medium">
+                            <UserPlus className="w-4 h-4" />
+                            <span className="hidden sm:inline">New Entry</span>
+                          </button>
+                        </>
+                      )}
+                      {role === 'superadmin' && (
+                        <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl font-medium">
+                          Read-only view
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
+                {/* Search card */}
+                <div className="px-3 md:px-4 pb-2">
+                  <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 py-2.5">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                      <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search patients..."
+                        className="w-full pl-10 pr-4 py-2 bg-zinc-50 rounded-xl text-base outline-none focus:ring-2 focus:ring-emerald-500/20 border border-zinc-100" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Patient list */}
+                <div className="flex-1 overflow-y-auto px-3 md:px-4 pb-3 md:pb-4 space-y-1.5">
                   {cabinets.length === 0 ? (
-                    <div className="text-center py-16 text-zinc-400">
+                    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm text-center py-16 text-zinc-400">
                       <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
                       <p>No patients found</p>
                     </div>
                   ) : cabinets.map(cab => (
                     <div key={cab}>
-                      <div className="sticky top-0 bg-zinc-100/90 backdrop-blur-sm px-4 md:px-5 py-1.5 border-y border-zinc-200 flex items-center gap-2">
-                        <div className="w-5 h-5 bg-zinc-600 text-white rounded flex items-center justify-center text-[10px] font-bold">{cab}</div>
+                      {/* Cabinet label */}
+                      <div className="flex items-center gap-2 px-1 py-1.5">
+                        <div className="w-5 h-5 bg-zinc-500 text-white rounded flex items-center justify-center text-[10px] font-bold">{cab}</div>
                         <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Cabinet {cab}</span>
                       </div>
-                      <div className="divide-y divide-zinc-100">
+                      {/* Cabinet card */}
+                      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden divide-y divide-zinc-100">
                         {grouped[cab].map(p => (
                           <PatientCard key={p.id} patient={p} isSelected={selectedPatient?.id === p.id}
                             onClick={() => { setSelectedPatient(p); setIsExpanded(false); }} />
@@ -318,20 +311,6 @@ export default function App() {
 
         {showAdminPanel && token && role === 'superadmin' && (
           <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />
-        )}
-
-        {showAIUpload && token && (
-          <AIUploadPreviewModal
-            token={token}
-            onClose={() => setShowAIUpload(false)}
-            onSaved={async (patientId) => {
-              setShowAIUpload(false);
-              await fetchPatients();
-              const p = await api(`/api/patients/${patientId}`, {}, token);
-              setSelectedPatient(p);
-              setActiveTab('directory');
-            }}
-          />
         )}
       </div>
     </PreferencesContext.Provider>

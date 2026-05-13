@@ -24,9 +24,6 @@ export default function PatientCard({ patient, isSelected, onClick }: Props) {
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-start mb-1">
           <h3 className="font-bold text-base text-zinc-900 truncate">{patient.full_name}</h3>
-          <span className="text-xs font-bold text-zinc-400 border border-zinc-200 px-2 py-1 rounded uppercase ml-2 flex-shrink-0">
-            {patient.id.slice(0, 4)}
-          </span>
         </div>
         <div className="flex items-center gap-4 text-base text-zinc-500">
           <div className="flex items-center gap-2">

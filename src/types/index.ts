@@ -12,6 +12,9 @@ export interface Patient {
   profile_photo_path: string | null;
   privacy_consent_signature_path: string | null;
   privacy_consent_at: string | null;
+  verified_by_doctor: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
   created_at: string;
   last_visit_date?: string | null;
 }
@@ -89,8 +92,10 @@ export interface QueueEntry {
 export interface Procedure {
   id: string;
   patient_id: string;
-  procedure_type: 'counseling' | 'surgery' | 'immunization';
-  consent_form_data: Record<string, unknown>;
+  procedure_type: string;
+  custom_type: string | null;
+  description: string | null;
+  consent_form_data: Record<string, any>;
   signature_path: string | null;
   created_at: string;
 }
@@ -123,10 +128,11 @@ export interface Message {
 
 export interface AuditLog {
   id: string;
+  user_id: string;
+  user_email: string;
   action: string;
   entity_type: string;
-  entity_id: string;
+  entity_id: string | null;
   description: string;
-  performed_by: string;
   created_at: string;
 }

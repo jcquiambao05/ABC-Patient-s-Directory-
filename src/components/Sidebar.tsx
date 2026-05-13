@@ -18,12 +18,14 @@ const nav = [
   { id: 'calendar', icon: CalendarDays, label: 'Appointments' },
   { id: 'dashboard', icon: BarChart2, label: 'Dashboard' },
   { id: 'chat', icon: MessageSquare, label: 'Assistant' },
-  { id: 'audit', icon: HistoryIcon, label: 'Audit' },
+  { id: 'audit', icon: HistoryIcon, label: 'Audit', adminOnly: true },
 ];
 
 export default function Sidebar({ activeTab, setActiveTab, onLogout, role, displayName, sidebarCompact = false, onOpenSettings, onOpenAdmin }: Props) {
   // On desktop: compact mode hides labels (icon-only). On tablet (md): always icon-only.
   const showLabels = !sidebarCompact;
+  // Filter nav items by role — audit is doctor/admin+ only
+  const visibleNav = nav.filter(item => !item.adminOnly || role === 'admin' || role === 'superadmin');
 
   return (
     <>
@@ -39,7 +41,7 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, role, displ
 
         {/* Nav items */}
         <nav className="flex-1 px-2 lg:px-4 space-y-1 mt-2">
-          {nav.map(item => (
+          {visibleNav.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
               title={item.label}
               className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${
@@ -106,8 +108,8 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, role, displ
       {/* Row 1: main nav items (6 items) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800 safe-area-pb">
         {/* Main nav row */}
-        <div className="grid grid-cols-6 px-1 pt-1">
-          {nav.map(item => (
+        <div className={`grid px-1 pt-1`} style={{ gridTemplateColumns: `repeat(${visibleNav.length}, minmax(0, 1fr))` }}>
+          {visibleNav.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-all ${
                 activeTab === item.id ? 'text-emerald-400' : 'text-zinc-500'

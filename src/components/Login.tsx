@@ -37,14 +37,13 @@ function SignupLink() {
   }, []);
   if (!open) return null;
   return (
-    <p className="text-zinc-500 text-sm">
+    <p className="text-slate-500 text-sm">
       New to ABCare?{' '}
       <button
         onClick={() => {
-          // Trigger signup via parent — we use a custom event since this is a sub-component
           window.dispatchEvent(new CustomEvent('abccare:show-signup'));
         }}
-        className="text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+        className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
       >
         Create an account
       </button>
@@ -54,6 +53,7 @@ function SignupLink() {
 
 export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [mode, setMode] = useState<'login' | 'forgot' | 'mfa'>('login');
+  const [forgotStep, setForgotStep] = useState<'email' | 'otp'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const isAdminKeyword = email.trim().toLowerCase() === 'admin';
@@ -63,6 +63,23 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tempToken, setTempToken] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [devOtp, setDevOtp] = useState(''); // shown when email not configured
+  const [cooldown, setCooldown] = useState(0);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown(c => {
+        if (c <= 1) { clearInterval(timer); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   // Handle OAuth callback token from URL
   useEffect(() => {
@@ -160,6 +177,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setDevOtp('');
     setIsLoading(true);
 
     try {
@@ -172,11 +190,58 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to send reset email');
+        if (res.status === 429 && data.cooldown) setCooldown(data.cooldown);
+        throw new Error(data.error || 'Failed to send code');
       }
 
-      setSuccess('Password reset instructions sent to your email');
-      setTimeout(() => setMode('login'), 3000);
+      // Google OAuth account — no password to reset
+      if (data.use_google) {
+        setError('This account uses Google Sign-In. Click "Continue with Google" on the login page instead.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Email not configured in dev — show OTP directly
+      if (data.dev_otp) {
+        setDevOtp(data.dev_otp);
+      }
+
+      setSuccess(data.message);
+      setCooldown(60);
+      setForgotStep('otp');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!otpCode.trim() || otpCode.length !== 6) { setError('Enter the 6-digit code'); return; }
+    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp: otpCode, newPassword }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+
+      setSuccess('Password updated! Redirecting to login...');
+      setTimeout(() => {
+        setMode('login');
+        setForgotStep('email');
+        setOtpCode('');
+        setNewPassword('');
+        setDevOtp('');
+        setSuccess('');
+      }, 2000);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -189,11 +254,11 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl animate-pulse delay-1000" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl animate-pulse delay-1000" />
       </div>
 
       <motion.div 
@@ -206,12 +271,12 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4 shadow-lg shadow-emerald-500/20">
             <Activity className="w-8 h-8 text-zinc-950" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-2">ABCare OmniFlow: Clinic Management</h1>
-          <p className="text-zinc-400">Secure Admin Access</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">ABCare OmniFlow: Clinic Management</h1>
+          <p className="text-slate-500">Secure Admin Access</p>
         </div>
 
         {/* Main Card */}
-        <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden">
           <AnimatePresence mode="wait">
             {/* Login Form */}
             {mode === 'login' && (
@@ -223,32 +288,32 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                 className="p-8"
               >
                 <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-                  <p className="text-zinc-400">Sign in to access the admin dashboard</p>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Welcome Back</h2>
+                  <p className="text-slate-500">Sign in to access the admin dashboard</p>
                 </div>
 
                 {error && (
-                  <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-600">{error}</p>
                   </div>
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-5">
                   {/* Email / Username Input */}
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
+                    <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
                       Email Address
                     </label>
                     <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                       <input
                         type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
                         pattern={isAdminKeyword ? undefined : undefined}
-                        className="w-full pl-12 pr-4 py-3.5 bg-zinc-800/50 border border-zinc-700 text-white rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500"
+                        className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                         placeholder="admin@clinic.com"
                       />
                     </div>
@@ -256,23 +321,23 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
 
                   {/* Password Input */}
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
+                    <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
                       Password
                     </label>
                     <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
-                        className="w-full pl-12 pr-12 py-3.5 bg-zinc-800/50 border border-zinc-700 text-white rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500"
+                        className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                         placeholder="Enter your password"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                       >
                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
@@ -286,7 +351,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                     <button
                       type="button"
                       onClick={() => setMode('forgot')}
-                      className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors font-medium"
+                      className="text-sm text-emerald-600 hover:text-emerald-700 transition-colors font-medium"
                     >
                       Forgot password?
                     </button>
@@ -314,10 +379,10 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                   {/* Divider */}
                   <div className="relative my-6">
                     <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-zinc-700" />
+                      <div className="w-full border-t border-slate-200" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-4 bg-zinc-900/50 text-zinc-500 font-medium">OR</span>
+                      <span className="px-4 bg-white text-slate-400 font-medium">OR</span>
                     </div>
                   </div>
 
@@ -325,7 +390,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
-                    className="w-full py-3.5 bg-white hover:bg-zinc-100 text-zinc-900 font-semibold rounded-xl transition-all flex items-center justify-center gap-3 border border-zinc-700"
+                    className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-900 font-semibold rounded-xl transition-all flex items-center justify-center gap-3 border border-slate-300 shadow-sm"
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -349,65 +414,149 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                 className="p-8"
               >
                 <button
-                  onClick={() => setMode('login')}
-                  className="mb-6 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
+                  onClick={() => { setMode('login'); setForgotStep('email'); setError(''); setSuccess(''); setDevOtp(''); setOtpCode(''); setNewPassword(''); setCooldown(0); }}
+                  className="mb-6 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   Back to login
                 </button>
 
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-white mb-2">Reset Password</h2>
-                  <p className="text-zinc-400">Enter your email to receive reset instructions</p>
-                </div>
-
-                {error && (
-                  <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
-                  </div>
-                )}
-
-                {success && (
-                  <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-3">
-                    <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-emerald-400">{success}</p>
-                  </div>
-                )}
-
-                <form onSubmit={handleForgotPassword} className="space-y-5">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        required
-                        className="w-full pl-12 pr-4 py-3.5 bg-zinc-800/50 border border-zinc-700 text-white rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500"
-                        placeholder="admin@mediflow.ai"
-                      />
+                {forgotStep === 'email' ? (
+                  <>
+                    <div className="mb-6">
+                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Reset Password</h2>
+                      <p className="text-slate-500">Enter your email and we'll send a 6-digit code</p>
                     </div>
-                  </div>
 
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Sending...
-                      </>
-                    ) : (
-                      'Send Reset Instructions'
+                    {error && (
+                      <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-600">{error}</p>
+                      </div>
                     )}
-                  </button>
-                </form>
+
+                    <form onSubmit={handleForgotPassword} className="space-y-5">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
+                          Email Address
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                            placeholder="your@email.com"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isLoading || cooldown > 0}
+                        className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isLoading ? (
+                          <><Loader2 className="w-5 h-5 animate-spin" /> Sending code...</>
+                        ) : cooldown > 0 ? (
+                          `Resend in ${cooldown}s`
+                        ) : (
+                          'Send Verification Code'
+                        )}
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-6">
+                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Enter Code</h2>
+                      <p className="text-slate-500">Check your email for the 6-digit code</p>
+                    </div>
+
+                    {/* Dev OTP display when email not configured */}
+                    {devOtp && (
+                      <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                        <p className="text-xs font-semibold text-amber-800 mb-1">Email not configured — your code:</p>
+                        <p className="text-2xl font-mono font-bold text-amber-700 tracking-widest">{devOtp}</p>
+                        <p className="text-xs text-amber-600 mt-1">Add EMAIL_USER and EMAIL_PASS to .env to enable email delivery.</p>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-600">{error}</p>
+                      </div>
+                    )}
+
+                    {success && !error && (
+                      <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-emerald-700">{success}</p>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleOtpSubmit} className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider block text-center">
+                          Verification Code
+                        </label>
+                        <input
+                          type="text"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          required
+                          maxLength={6}
+                          className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 text-center text-2xl font-mono tracking-widest rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                          placeholder="000000"
+                          autoFocus
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
+                          New Password
+                        </label>
+                        <div className="relative">
+                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                          <input
+                            type={showNewPassword ? 'text' : 'password'}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            required
+                            minLength={8}
+                            className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                            placeholder="Min 8 characters"
+                          />
+                          <button type="button" onClick={() => setShowNewPassword(s => !s)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                            {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isLoading || otpCode.length !== 6 || newPassword.length < 8}
+                        className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isLoading ? (
+                          <><Loader2 className="w-5 h-5 animate-spin" /> Updating...</>
+                        ) : (
+                          'Set New Password'
+                        )}
+                      </button>
+
+                      <button type="button" onClick={() => { setForgotStep('email'); setError(''); setOtpCode(''); }}
+                        disabled={cooldown > 0}
+                        className="w-full text-sm text-slate-500 hover:text-slate-900 transition-colors disabled:opacity-50">
+                        {cooldown > 0 ? `Resend code in ${cooldown}s` : "Didn't get the code? Send again"}
+                      </button>
+                    </form>
+                  </>
+                )}
               </motion.div>
             )}
 
@@ -421,23 +570,23 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                 className="p-8"
               >
                 <div className="mb-6 text-center">
-                  <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500/10 rounded-2xl mb-4">
-                    <Key className="w-8 h-8 text-emerald-400" />
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-50 rounded-2xl mb-4">
+                    <Key className="w-8 h-8 text-emerald-600" />
                   </div>
-                  <h2 className="text-2xl font-bold text-white mb-2">Two-Factor Authentication</h2>
-                  <p className="text-zinc-400">Enter the 6-digit code from your authenticator app</p>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Two-Factor Authentication</h2>
+                  <p className="text-slate-500">Enter the 6-digit code from your authenticator app</p>
                 </div>
 
                 {error && (
-                  <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-600">{error}</p>
                   </div>
                 )}
 
                 <form onSubmit={handleMFAVerify} className="space-y-5">
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-zinc-300 uppercase tracking-wider text-center block">
+                    <label className="text-sm font-semibold text-slate-600 uppercase tracking-wider text-center block">
                       Verification Code
                     </label>
                     <input
@@ -446,7 +595,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                       onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       required
                       maxLength={6}
-                      className="w-full px-4 py-4 bg-zinc-800/50 border border-zinc-700 text-white text-center text-2xl font-mono tracking-widest rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500"
+                      className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 text-center text-2xl font-mono tracking-widest rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                       placeholder="000000"
                     />
                   </div>
@@ -469,7 +618,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
                   <button
                     type="button"
                     onClick={() => setMode('login')}
-                    className="w-full text-sm text-zinc-400 hover:text-white transition-colors"
+                    className="w-full text-sm text-slate-500 hover:text-slate-900 transition-colors"
                   >
                     Back to login
                   </button>
@@ -481,7 +630,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
 
         {/* Footer */}
         <div className="text-center mt-6 space-y-2">
-          <p className="text-zinc-500 text-sm">Protected by enterprise-grade security</p>
+          <p className="text-slate-400 text-sm"></p>
           {mode === 'login' && (
             <SignupLink />
           )}

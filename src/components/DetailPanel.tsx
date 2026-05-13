@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Loader2, Upload, FileText, Image, CheckCircle, Trash2, Printer, Save, Archive } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Loader2, Upload, FileText, Image, CheckCircle, Trash2, Printer, Save, Archive, ShieldCheck } from 'lucide-react';
 import { api } from '../lib/api';
 import ConsultationTable from './ConsultationTable';
 import ProcedureModal from './ProcedureModal';
@@ -16,6 +16,128 @@ interface Props {
   onToggleExpand: () => void;
 }
 
+// ── Print Filter Modal ─────────────────────────────────────────────────────
+interface PrintFilterProps {
+  patientName: string;
+  totalConsultations: number;
+  onClose: () => void;
+  onPrint: (opts: {
+    sections: { general: boolean; history: boolean; consultations: boolean; procedures: boolean; prescriptions: boolean };
+    dateFrom: string;
+    dateTo: string;
+    consultationStatus: 'all' | 'reviewed' | 'pending';
+  }) => void;
+}
+
+function PrintFilterModal({ patientName, totalConsultations, onClose, onPrint }: PrintFilterProps) {
+  const [sections, setSections] = React.useState({
+    general: true, history: true, consultations: true, procedures: true, prescriptions: false,
+  });
+  const [dateFrom, setDateFrom] = React.useState('');
+  const [dateTo, setDateTo] = React.useState('');
+  const [consultationStatus, setConsultationStatus] = React.useState<'all' | 'reviewed' | 'pending'>('all');
+
+  const toggle = (key: keyof typeof sections) =>
+    setSections(s => ({ ...s, [key]: !s[key] }));
+
+  const labelCls = 'flex items-center gap-2.5 cursor-pointer select-none';
+  const checkCls = (on: boolean) =>
+    `w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${on ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-300 bg-white'}`;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
+          <div>
+            <h3 className="text-base font-bold text-zinc-900">Print Options</h3>
+            <p className="text-xs text-zinc-500 mt-0.5 truncate max-w-[220px]">{patientName}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Sections to include */}
+          <div>
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Sections to Include</p>
+            <div className="space-y-2.5">
+              {([
+                ['general', 'General Data'],
+                ['history', 'Medical History'],
+                ['consultations', `Consultations (${totalConsultations})`],
+                ['procedures', 'Procedures'],
+                ['prescriptions', 'Prescriptions'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className={labelCls} onClick={() => toggle(key)}>
+                  <div className={checkCls(sections[key])}>
+                    {sections[key] && <CheckCircle className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className="text-sm text-zinc-700">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Consultation date filter — only shown if consultations is checked */}
+          {sections.consultations && (
+            <div className="border-t border-zinc-100 pt-4 space-y-3">
+              <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Consultation Filters</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">From Date</label>
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                    className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400 text-zinc-800" />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">To Date</label>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                    className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400 text-zinc-800" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 block mb-1.5">Status</label>
+                <div className="flex gap-2">
+                  {(['all', 'reviewed', 'pending'] as const).map(s => (
+                    <button key={s} onClick={() => setConsultationStatus(s)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors border ${
+                        consultationStatus === s
+                          ? 'bg-emerald-500 text-white border-emerald-500'
+                          : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400'
+                      }`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {(dateFrom || dateTo) && (
+                <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors">
+                  Clear date filter
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 pb-5 flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => onPrint({ sections, dateFrom, dateTo, consultationStatus })}
+            className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-1.5">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DetailPanel({ patient, token, role, onClose, onRefresh, isExpanded, onToggleExpand }: Props) {
   const [fullData, setFullData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +151,8 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   const [showProcedureModal, setShowProcedureModal] = useState(false);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [showPrintFilter, setShowPrintFilter] = useState(false);
 
   // Inline edit state for General tab
   const [generalEdit, setGeneralEdit] = useState<any>(null);
@@ -41,6 +165,8 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   const [historyEdit, setHistoryEdit] = useState<any>(null);
   const [historySaving, setHistorySaving] = useState(false);
   const [historyError, setHistoryError] = useState('');
+
+  // AI Consultation Summarizer state removed
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -115,6 +241,16 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
     finally { setHistorySaving(false); }
   };
 
+  const handleVerify = async () => {
+    setVerifying(true);
+    try {
+      await api(`/api/patients/${patient.id}/verify`, { method: 'PATCH' }, token);
+      await loadData();
+      onRefresh();
+    } catch (err) { alert((err as Error).message); }
+    finally { setVerifying(false); }
+  };
+
   const handleChartImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
     setUploadingChart(true); setChartUploadError('');
@@ -129,16 +265,40 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
     finally { setUploadingChart(false); }
   };
 
-  const handlePrint = () => {
+  const handlePrint = (opts?: {
+    sections: { general: boolean; history: boolean; consultations: boolean; procedures: boolean; prescriptions: boolean };
+    dateFrom: string;
+    dateTo: string;
+    consultationStatus: 'all' | 'reviewed' | 'pending';
+  }) => {
     if (!fullData) return;
     const mh = fullData.medical_history;
-    const records = fullData.consultation_records || [];
+    const allRecords: any[] = fullData.consultation_records || [];
+
+    // Apply filters
+    const sections = opts?.sections ?? { general: true, history: true, consultations: true, procedures: true, prescriptions: true };
+    const dateFrom = opts?.dateFrom ? new Date(opts.dateFrom) : null;
+    const dateTo = opts?.dateTo ? new Date(opts.dateTo + 'T23:59:59') : null;
+    const statusFilter = opts?.consultationStatus ?? 'all';
+
+    const records = allRecords.filter((r: any) => {
+      const d = new Date(r.date);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      if (statusFilter === 'reviewed' && !r.reviewed) return false;
+      if (statusFilter === 'pending' && r.reviewed) return false;
+      return true;
+    });
 
     const pmLabelsLocal: Record<string, string> = { hypertension: 'Hypertension', heart_disease: 'Heart Disease', diabetes_mellitus: 'Diabetes Mellitus', bronchial_asthma: 'Bronchial Asthma', tuberculosis: 'Tuberculosis', chronic_kidney_disease: 'Chronic Kidney Disease', thyroid_disease: 'Thyroid Disease', allergies: 'Allergies', surgeries: 'Surgeries', others: 'Others' };
 
     const checkedPM = mh?.past_medical ? Object.entries(mh.past_medical).filter(([, v]: any) => v.checked).map(([k]: any) => pmLabelsLocal[k] || k) : [];
     const checkedPS = mh?.personal_social_history ? Object.entries(mh.personal_social_history).filter(([, v]) => v).map(([k]) => k.replace('_', ' ')) : [];
     const checkedFH = mh?.family_history ? Object.entries(mh.family_history).filter(([, v]) => v).map(([k]) => pmLabelsLocal[k] || k) : [];
+
+    const filterNote = (opts?.dateFrom || opts?.dateTo || statusFilter !== 'all')
+      ? `Filtered: ${opts?.dateFrom || '—'} to ${opts?.dateTo || '—'}${statusFilter !== 'all' ? ` · ${statusFilter} only` : ''}`
+      : '';
 
     const html = `<!DOCTYPE html><html><head><title>Patient Record — ${patient.full_name}</title>
 <style>
@@ -149,17 +309,21 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   .field label { font-size: 10px; color: #666; text-transform: uppercase; display: block; }
   .field span { font-weight: bold; }
   .clinic { font-size: 11px; color: #666; margin-bottom: 16px; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
+  .filter-note { font-size: 10px; color: #888; font-style: italic; margin-bottom: 8px; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th { background: #f0f0f0; padding: 4px 8px; text-align: left; border: 1px solid #ddd; }
   td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: top; }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag { background: #e0f2fe; padding: 2px 6px; border-radius: 4px; font-size: 10px; }
+  .verified { color: #1d4ed8; font-size: 10px; font-weight: bold; }
   @media print { body { margin: 10px; } }
 </style></head><body>
-<div class="clinic">ABC Patient Directory — Printed ${new Date().toLocaleString()}</div>
+<div class="clinic">ABC Patient Directory — Printed ${new Date().toLocaleString()}${filterNote ? ` · ${filterNote}` : ''}</div>
 <h1>${patient.full_name}</h1>
-<p style="color:#555;margin:0 0 12px">${patient.gender || ''}${patient.age ? ` · ${patient.age} yrs` : ''}${patient.civil_status ? ` · ${patient.civil_status}` : ''}</p>
+<p style="color:#555;margin:0 0 4px">${patient.gender || ''}${patient.age ? ` · ${patient.age} yrs` : ''}${patient.civil_status ? ` · ${patient.civil_status}` : ''}</p>
+${fullData.verified_by_doctor ? '<p class="verified">✓ Verified by Doctor</p>' : ''}
 
+${sections.general ? `
 <h2>General Data</h2>
 <div class="grid">
   <div class="field"><label>Date of Birth</label><span>${patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : '—'}</span></div>
@@ -167,9 +331,9 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   <div class="field"><label>Occupation</label><span>${patient.occupation || '—'}</span></div>
   <div class="field"><label>Referred By</label><span>${patient.referred_by || '—'}</span></div>
   <div class="field" style="grid-column:1/-1"><label>Address</label><span>${patient.address || '—'}</span></div>
-</div>
+</div>` : ''}
 
-${mh ? `
+${sections.history && mh ? `
 <h2>Medical History</h2>
 <div class="grid">
   <div class="field"><label>Past Medical Conditions</label>
@@ -185,9 +349,9 @@ ${mh ? `
   <div class="field" style="grid-column:1/-1"><label>Travel History</label><span>${mh.travel_history || '—'}</span></div>
 </div>` : ''}
 
-${records.length ? `
-<h2>Consultation Records (${records.length})</h2>
-<table>
+${sections.consultations ? `
+<h2>Consultation Records (${records.length}${allRecords.length !== records.length ? ` of ${allRecords.length} filtered` : ''})</h2>
+${records.length ? `<table>
   <thead><tr><th>Date</th><th>Subjective / Clinical Findings</th><th>Assessment / Plan</th><th>Status</th></tr></thead>
   <tbody>
     ${records.map((r: any) => `<tr>
@@ -195,6 +359,20 @@ ${records.length ? `
       <td>${r.subjective_clinical_findings || '—'}</td>
       <td>${r.assessment_plan || '—'}</td>
       <td>${r.reviewed ? `Reviewed ${r.marked_at ? new Date(r.marked_at).toLocaleDateString() : ''}` : 'Pending'}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>` : '<p style="color:#888;font-size:11px">No consultation records match the selected filters.</p>'}` : ''}
+
+${sections.procedures && procedures.length ? `
+<h2>Procedures (${procedures.length})</h2>
+<table>
+  <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Consent</th></tr></thead>
+  <tbody>
+    ${procedures.map((p: any) => `<tr>
+      <td>${new Date(p.created_at).toLocaleDateString()}</td>
+      <td style="text-transform:capitalize">${p.procedure_type === 'custom' ? (p.custom_type || 'Custom') : p.procedure_type}</td>
+      <td>${p.description || '—'}</td>
+      <td>${p.signature_path ? 'Signed' : 'No signature'}</td>
     </tr>`).join('')}
   </tbody>
 </table>` : ''}
@@ -245,23 +423,51 @@ ${records.length ? `
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400"><X className="w-4 h-4" /></button>
       </div>
 
-      {/* Staff actions — Print + Archive (replaces delete) */}
+      {/* Staff actions — Print + Archive */}
       {role === 'staff' && (
         <div className="px-4 py-2 border-b border-zinc-100 flex gap-2 bg-zinc-50">
           <button onClick={() => setShowArchiveConfirm(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-amber-400 text-zinc-700 hover:text-amber-600 rounded-lg text-sm font-medium transition-colors">
             <Archive className="w-3.5 h-3.5" /> Archive Patient
           </button>
-          <button onClick={handlePrint}
+          {/* Verification status badge — read-only for staff */}
+          {fullData?.verified_by_doctor ? (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm font-medium">
+              <ShieldCheck className="w-3.5 h-3.5" /> Verified by Doctor
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-zinc-100 border border-zinc-200 text-zinc-400 rounded-lg text-sm font-medium">
+              <ShieldCheck className="w-3.5 h-3.5" /> Not Verified
+            </div>
+          )}
+          <button onClick={() => setShowPrintFilter(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-zinc-400 text-zinc-700 rounded-lg text-sm font-medium transition-colors ml-auto">
             <Printer className="w-3.5 h-3.5" /> Print Record
           </button>
         </div>
       )}
+      {/* Doctor (admin) actions — Verify + Archive + Print */}
       {role === 'admin' && (
-        <div className="px-4 py-2 border-b border-zinc-100 flex gap-2 bg-zinc-50 justify-end">
-          <button onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-zinc-400 text-zinc-700 rounded-lg text-sm font-medium transition-colors">
+        <div className="px-4 py-2 border-b border-zinc-100 flex gap-2 bg-zinc-50">
+          <button onClick={() => setShowArchiveConfirm(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-amber-400 text-zinc-700 hover:text-amber-600 rounded-lg text-sm font-medium transition-colors">
+            <Archive className="w-3.5 h-3.5" /> Archive
+          </button>
+          {/* Verify button — toggles verification */}
+          <button
+            onClick={handleVerify}
+            disabled={verifying}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors border disabled:opacity-50 ${
+              fullData?.verified_by_doctor
+                ? 'bg-blue-500 hover:bg-blue-600 text-white border-blue-500'
+                : 'bg-white hover:border-blue-400 hover:text-blue-600 text-zinc-500 border-zinc-200'
+            }`}
+          >
+            {verifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+            {fullData?.verified_by_doctor ? 'Verified' : 'Verify Patient'}
+          </button>
+          <button onClick={() => setShowPrintFilter(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:border-zinc-400 text-zinc-700 rounded-lg text-sm font-medium transition-colors ml-auto">
             <Printer className="w-3.5 h-3.5" /> Print Record
           </button>
         </div>
@@ -709,13 +915,89 @@ ${records.length ? `
 
             {/* Consultations */}
             {activeTab === 'consultations' && (
-              <ConsultationTable
-                records={fullData?.consultation_records || []}
-                token={token}
-                patientId={patient.id}
-                role={role}
-                onRefresh={loadData}
-              />
+              <div className="space-y-3">
+                {/* Vitals sparkline — shown when 2+ records have vitals data */}
+                {(() => {
+                  const records: any[] = fullData?.consultation_records || [];
+                  const withVitals = records
+                    .filter(r => r.vitals && (r.vitals.bp_systolic || r.vitals.weight_kg))
+                    .slice(0, 10)
+                    .reverse(); // oldest first for left-to-right trend
+
+                  if (withVitals.length < 2) return null;
+
+                  const bpPoints = withVitals.filter((r: any) => r.vitals.bp_systolic);
+                  const wtPoints = withVitals.filter((r: any) => r.vitals.weight_kg);
+
+                  const Sparkline = ({
+                    points,
+                    colorClass,
+                    label,
+                    unit,
+                    getValue,
+                  }: {
+                    points: any[];
+                    colorClass: string;
+                    label: string;
+                    unit: string;
+                    getValue: (r: any) => number;
+                  }) => {
+                    if (points.length < 2) return null;
+                    const vals = points.map(getValue);
+                    const min = Math.min(...vals);
+                    const max = Math.max(...vals);
+                    const range = max - min || 1;
+                    const W = 120, H = 32, pad = 4;
+                    const xs = points.map((_: any, i: number) => pad + (i / (points.length - 1)) * (W - pad * 2));
+                    const ys = vals.map((v: number) => H - pad - ((v - min) / range) * (H - pad * 2));
+                    const last = vals[vals.length - 1];
+                    return (
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 w-20">
+                          <p className="text-[10px] text-zinc-400 font-medium">{label}</p>
+                          <p className={`text-sm font-bold ${colorClass}`}>{last}{unit}</p>
+                        </div>
+                        <svg width={W} height={H} className="flex-shrink-0 overflow-visible">
+                          <polyline
+                            points={xs.map((x: number, i: number) => `${x},${ys[i]}`).join(' ')}
+                            fill="none"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={colorClass}
+                            style={{ stroke: 'currentColor' }}
+                          />
+                          {xs.map((x: number, i: number) => (
+                            <circle key={i} cx={x} cy={ys[i]} r="2.5" className={colorClass} style={{ fill: 'currentColor' }} />
+                          ))}
+                        </svg>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                        Vitals Trend ({withVitals.length} visits)
+                      </p>
+                      <div className="flex flex-wrap gap-4">
+                        <Sparkline points={bpPoints} colorClass="text-red-500" label="BP Systolic" unit=" mmHg"
+                          getValue={(r: any) => r.vitals.bp_systolic} />
+                        <Sparkline points={wtPoints} colorClass="text-blue-500" label="Weight" unit=" kg"
+                          getValue={(r: any) => r.vitals.weight_kg} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <ConsultationTable
+                  records={fullData?.consultation_records || []}
+                  token={token}
+                  patientId={patient.id}
+                  role={role}
+                  onRefresh={loadData}
+                />
+              </div>
             )}
 
             {/* Chart Images */}
@@ -809,11 +1091,19 @@ ${records.length ? `
                     {procedures.map(p => (
                       <div key={p.id} className="border border-zinc-200 rounded-xl p-5">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-base text-zinc-800 capitalize">{p.procedure_type}</span>
+                          <span className="font-medium text-base text-zinc-800 capitalize">
+                            {p.procedure_type === 'custom' ? (p.custom_type || 'Custom Procedure') : p.procedure_type}
+                          </span>
                           <span className="text-sm text-zinc-400">{new Date(p.created_at).toLocaleDateString()}</span>
                         </div>
+                        {p.description && (
+                          <p className="text-sm text-zinc-600 mt-1.5">{p.description}</p>
+                        )}
+                        {(p.consent_form_data as any)?.notes && (
+                          <p className="text-xs text-zinc-400 mt-1 italic">Note: {(p.consent_form_data as any).notes}</p>
+                        )}
                         {p.signature_path && (
-                          <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                          <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" /> Consent signed
                           </p>
                         )}
@@ -836,6 +1126,7 @@ ${records.length ? `
         <ProcedureModal
           token={token}
           patientId={patient.id}
+          role={role}
           onClose={() => setShowProcedureModal(false)}
           onSaved={loadData}
         />
@@ -929,6 +1220,16 @@ ${records.length ? `
             </div>
           </div>
         </div>
+      )}
+
+      {/* Print Filter Modal */}
+      {showPrintFilter && (
+        <PrintFilterModal
+          patientName={patient.full_name}
+          totalConsultations={(fullData?.consultation_records || []).length}
+          onClose={() => setShowPrintFilter(false)}
+          onPrint={(opts) => { setShowPrintFilter(false); handlePrint(opts); }}
+        />
       )}
 
       {/* Lightbox modal for chart image preview */}

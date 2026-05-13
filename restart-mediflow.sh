@@ -1,20 +1,16 @@
 #!/bin/bash
+# ABCare OmniFlow — Restart Script
 
-echo "🏥 ABC Patient Directory services..."
-./stop-mediflow.sh
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+echo "Restarting ABCare OmniFlow..."
+echo ""
+
+"$SCRIPT_DIR/stop-mediflow.sh"
 
 echo ""
-echo "⏳ Waiting 3 seconds..."
+echo "Waiting 3 seconds..."
 sleep 3
+echo ""
 
-echo ""
-echo "🏥 ABC Patient Directory services..."
-./start-mediflow.sh
-
-echo ""
-echo "🏥 ABC Patient Directory restarted!"
-echo ""
-echo "📝 Check the logs:"
-echo "   - Web app: http://localhost:3000"
-echo "   - Server logs: Check terminal output"
-echo ""
+"$SCRIPT_DIR/start-mediflow.sh"

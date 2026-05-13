@@ -141,11 +141,11 @@ export default function AIUploadPreviewModal({ token, onClose, onSaved }: Props)
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
           <div>
-            <h2 className="text-base font-bold text-zinc-900">AI Chart Upload</h2>
+            <h2 className="text-base font-bold text-zinc-900">Chart Pre-fill</h2>
             <p className="text-xs text-zinc-500">
-              {step === 'upload' && 'Select a chart image to extract patient data'}
-              {step === 'extracting' && 'Reading chart with AI vision...'}
-              {step === 'preview' && 'Review extracted data before saving'}
+              {step === 'upload' && 'Upload a printed chart to pre-fill patient data (works best on printed text)'}
+              {step === 'extracting' && 'Reading chart with OCR...'}
+              {step === 'preview' && 'Review and correct extracted data before saving'}
               {step === 'saving' && 'Saving patient record...'}
             </p>
           </div>
@@ -166,7 +166,8 @@ export default function AIUploadPreviewModal({ token, onClose, onSaved }: Props)
                 </div>
                 <div>
                   <p className="font-medium text-zinc-700">Click to select chart image</p>
-                  <p className="text-xs text-zinc-400 mt-1">JPEG, PNG — photo or scan of physical chart</p>
+                  <p className="text-xs text-zinc-400 mt-1">JPEG, PNG — printed charts work best</p>
+                  <p className="text-xs text-amber-600 mt-1">⚠ Handwritten charts may need manual correction</p>
                 </div>
                 <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFileSelect} />
               </label>

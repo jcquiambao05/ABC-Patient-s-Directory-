@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Archive, Shield, Trash2, RotateCcw, KeyRound,
-  Loader2, AlertTriangle, CheckCircle, X, Eye, EyeOff, UserX, Mail, Plus
+  Loader2, AlertTriangle, CheckCircle, X, Eye, EyeOff, UserX, Mail, Plus,
+  ClipboardList, MessageSquare, AlertOctagon, BookOpen
 } from 'lucide-react';
 
 interface Props {
@@ -30,7 +31,28 @@ interface ArchivedPatient {
   archived_by_name: string | null;
 }
 
-type Tab = 'users' | 'archive' | 'whitelist';
+type Tab = 'users' | 'archive' | 'whitelist' | 'audit' | 'faq';
+
+interface StatusLogEntry {
+  id: number;
+  appointment_id: string;
+  patient_name: string;
+  old_status: string;
+  new_status: string;
+  changed_by: string;
+  changed_at: string;
+  change_reason: string | null;
+}
+
+interface FaqEntry {
+  id: string;
+  category: string;
+  question: string;
+  answer: string;
+  sort_order: number;
+  is_active: boolean;
+  is_draft: boolean;
+}
 
 export default function AdminPanel({ token, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('users');
@@ -57,7 +79,19 @@ export default function AdminPanel({ token, onClose }: Props) {
   // Google whitelist state
   const [whitelist, setWhitelist] = useState<string[]>([]);
   const [newEmail, setNewEmail] = useState('');
-  const [whitelistSaving, setWhitelistSaving] = useState(false);  const loadUsers = useCallback(async () => {
+  const [whitelistSaving, setWhitelistSaving] = useState(false);
+
+  // Appointment audit state
+  const [statusLog, setStatusLog] = useState<StatusLogEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  // FAQ management state
+  const [faqEntries, setFaqEntries] = useState<FaqEntry[]>([]);
+  const [faqLoading, setFaqLoading] = useState(false);
+  const [faqEdit, setFaqEdit] = useState<FaqEntry | null>(null);
+  const [faqNew, setFaqNew] = useState(false);
+  const [faqForm, setFaqForm] = useState({ category: '', question: '', answer: '', sort_order: 0 });
+  const [faqSaving, setFaqSaving] = useState(false);  const loadUsers = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const r = await fetch('/api/auth/users', { headers: authHeaders });
@@ -92,11 +126,67 @@ export default function AdminPanel({ token, onClose }: Props) {
     if (activeTab === 'users') loadUsers();
     else if (activeTab === 'archive') loadArchived();
     else if (activeTab === 'whitelist') loadWhitelist();
+    else if (activeTab === 'audit') loadAuditLog();
+    else if (activeTab === 'faq') loadFaq();
   }, [activeTab]);
 
   const flash = (msg: string) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(''), 3000);
+  };
+
+  const loadAuditLog = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const r = await fetch('/api/admin/appointment-audit/status-log', { headers: authHeaders });
+      if (r.ok) setStatusLog(await r.json());
+    } catch { /* silent */ }
+    finally { setAuditLoading(false); }
+  }, [token]);
+
+  const loadFaq = useCallback(async () => {
+    setFaqLoading(true);
+    try {
+      const r = await fetch('/api/faq?limit=100', { headers: authHeaders });
+      if (r.ok) setFaqEntries(await r.json());
+    } catch { /* silent */ }
+    finally { setFaqLoading(false); }
+  }, [token]);
+
+  const handleFaqSave = async () => {
+    if (!faqForm.question.trim() || !faqForm.answer.trim() || !faqForm.category.trim()) return;
+    setFaqSaving(true);
+    try {
+      if (faqEdit) {
+        const r = await fetch(`/api/faq/${faqEdit.id}`, {
+          method: 'PUT', headers: authHeaders,
+          body: JSON.stringify({ ...faqForm, is_active: faqEdit.is_active, is_draft: false }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error);
+        flash('FAQ entry updated.');
+      } else {
+        const r = await fetch('/api/faq', {
+          method: 'POST', headers: authHeaders,
+          body: JSON.stringify({ ...faqForm, is_draft: false }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error);
+        flash('FAQ entry added.');
+      }
+      setFaqEdit(null); setFaqNew(false);
+      setFaqForm({ category: '', question: '', answer: '', sort_order: 0 });
+      loadFaq();
+    } catch (e) { setError((e as Error).message); }
+    finally { setFaqSaving(false); }
+  };
+
+  const handleFaqDelete = async (id: string) => {
+    if (!confirm('Delete this FAQ entry?')) return;
+    try {
+      const r = await fetch(`/api/faq/${id}`, { method: 'DELETE', headers: authHeaders });
+      if (!r.ok) throw new Error((await r.json()).error);
+      flash('FAQ entry deleted.');
+      loadFaq();
+    } catch (e) { setError((e as Error).message); }
   };
 
   const handleDeleteUser = async () => {
@@ -211,14 +301,16 @@ export default function AdminPanel({ token, onClose }: Props) {
       </div>
 
       {/* Tabs */}
-      <div className={`flex border-b ${border} px-6 flex-shrink-0`}>
+      <div className={`flex border-b ${border} px-6 flex-shrink-0 overflow-x-auto`}>
         {([
           { id: 'users', icon: Users, label: 'User Accounts' },
           { id: 'archive', icon: Archive, label: 'Patient Archive' },
           { id: 'whitelist', icon: Mail, label: 'Google Whitelist' },
+          { id: 'audit', icon: ClipboardList, label: 'Appt Audit' },
+          { id: 'faq', icon: BookOpen, label: 'FAQ Manager' },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex items-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === t.id
                 ? 'border-amber-400 text-amber-300'
                 : `border-transparent ${muted} hover:text-slate-200`
@@ -338,7 +430,7 @@ export default function AdminPanel({ token, onClose }: Props) {
               </div>
             ))}
           </div>
-        ) : (
+        ) : activeTab === 'whitelist' ? (
           /* Google Whitelist Tab */
           <div className="space-y-4 max-w-lg">
             <div>
@@ -398,7 +490,109 @@ export default function AdminPanel({ token, onClose }: Props) {
               Note: Changes update the server's environment. Restart the server if Google sign-in doesn't reflect changes immediately.
             </p>
           </div>
-        )}
+        ) : activeTab === 'audit' ? (
+          /* Appointment Audit Tab */
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className={`text-xs ${muted}`}>All appointment status changes — newest first</p>
+              <button onClick={loadAuditLog} className="text-xs text-amber-400 hover:text-amber-300 transition-colors">↻ Refresh</button>
+            </div>
+            {auditLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-amber-400" /></div>
+            ) : statusLog.length === 0 ? (
+              <div className={`text-center py-16 ${muted}`}>
+                <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No status changes recorded yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {statusLog.map(entry => (
+                  <div key={entry.id} className={`${card} border ${border} rounded-xl p-3`}>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          entry.new_status === 'confirmed' ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' :
+                          entry.new_status === 'pending'   ? 'bg-amber-900/50 text-amber-300 border border-amber-700' :
+                          entry.new_status === 'no_show'   ? 'bg-red-900/50 text-red-300 border border-red-700' :
+                          entry.new_status === 'attended'  ? 'bg-blue-900/50 text-blue-300 border border-blue-700' :
+                          'bg-slate-700 text-slate-300 border border-slate-600'
+                        }`}>{entry.new_status}</span>
+                        <span className={`text-xs ${muted}`}>← {entry.old_status}</span>
+                      </div>
+                      <span className={`text-[10px] ${muted}`}>{new Date(entry.changed_at).toLocaleString()}</span>
+                    </div>
+                    <p className={`text-sm ${text} mt-1`}>{entry.patient_name || 'Unknown patient'}</p>
+                    <p className={`text-xs ${muted}`}>Changed by: <span className="text-slate-300">{entry.changed_by || 'system'}</span>
+                      {entry.change_reason ? ` · ${entry.change_reason}` : ''}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'faq' ? (
+          /* FAQ Manager Tab */
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className={`text-xs ${muted}`}>{faqEntries.length} FAQ entries</p>
+              <button
+                onClick={() => { setFaqNew(true); setFaqEdit(null); setFaqForm({ category: '', question: '', answer: '', sort_order: faqEntries.length + 1 }); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-bold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add FAQ
+              </button>
+            </div>
+            {(faqNew || faqEdit) && (
+              <div className={`${card} border ${border} rounded-xl p-4 space-y-3`}>
+                <p className={`text-sm font-semibold ${text}`}>{faqEdit ? 'Edit FAQ Entry' : 'New FAQ Entry'}</p>
+                <input value={faqForm.category} onChange={e => setFaqForm(f => ({ ...f, category: e.target.value }))}
+                  placeholder="Category (e.g. Queue, Appointments, Patient Records)"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 text-white rounded-lg text-sm outline-none focus:border-amber-400 placeholder:text-slate-500" />
+                <input value={faqForm.question} onChange={e => setFaqForm(f => ({ ...f, question: e.target.value }))}
+                  placeholder="Question"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 text-white rounded-lg text-sm outline-none focus:border-amber-400 placeholder:text-slate-500" />
+                <textarea value={faqForm.answer} onChange={e => setFaqForm(f => ({ ...f, answer: e.target.value }))}
+                  placeholder="Answer" rows={3}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 text-white rounded-lg text-sm outline-none focus:border-amber-400 placeholder:text-slate-500 resize-none" />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => { setFaqNew(false); setFaqEdit(null); }} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium transition-colors">Cancel</button>
+                  <button onClick={handleFaqSave} disabled={faqSaving}
+                    className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 flex items-center gap-1">
+                    {faqSaving && <Loader2 className="w-3 h-3 animate-spin" />}
+                    {faqEdit ? 'Save Changes' : 'Add Entry'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {faqLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-amber-400" /></div>
+            ) : (
+              <div className="space-y-2">
+                {faqEntries.map(entry => (
+                  <div key={entry.id} className={`${card} border ${border} rounded-xl p-3`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] px-2 py-0.5 bg-slate-700 text-slate-300 rounded-full">{entry.category}</span>
+                        </div>
+                        <p className={`text-sm font-medium ${text}`}>{entry.question}</p>
+                        <p className={`text-xs ${muted} mt-0.5 overflow-hidden`} style={{display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as const, overflow:'hidden'}}>{entry.answer}</p>
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        <button onClick={() => { setFaqEdit(entry); setFaqNew(false); setFaqForm({ category: entry.category, question: entry.question, answer: entry.answer, sort_order: entry.sort_order }); }}
+                          className={`px-2 py-1 text-xs ${muted} hover:text-amber-300 hover:bg-amber-900/30 rounded-lg transition-colors`}>Edit</button>
+                        <button onClick={() => handleFaqDelete(entry.id)}
+                          className={`p-1.5 ${muted} hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors`}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Reset Password Modal */}

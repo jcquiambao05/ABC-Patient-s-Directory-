@@ -1,11 +1,10 @@
 2
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Loader2, ListOrdered, UserCheck, ClipboardList, Eye, X, UserPlus, Upload, CalendarPlus } from 'lucide-react';
+import { Search, Loader2, ListOrdered, UserCheck, ClipboardList, Eye, X, UserPlus, CalendarPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../lib/api';
 import DetailPanel from './DetailPanel';
 import AddPatientModal from './AddPatientModal';
-import AIUploadPreviewModal from './AIUploadPreviewModal';
 import AppointmentModal from './AppointmentModal';
 import type { Patient, QueueEntry } from '../types/index';
 
@@ -19,12 +18,12 @@ export default function QueuePage({ token, role }: Props) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [doneConfirm, setDoneConfirm] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [viewPatientData, setViewPatientData] = useState<any>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [showAIUpload, setShowAIUpload] = useState(false);
   // Appointment state — shown after marking done
   const [appointmentEntry, setAppointmentEntry] = useState<QueueEntry | null>(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
@@ -33,11 +32,17 @@ export default function QueuePage({ token, role }: Props) {
     try {
       const [q, p] = await Promise.all([api('/api/queue', {}, token), api('/api/patients', {}, token)]);
       setQueue(q); setPatients(p);
+      setLastUpdated(new Date());
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, [token]);
 
-  useEffect(() => { loadQueue(); }, [loadQueue]);
+  useEffect(() => {
+    loadQueue();
+    // Auto-refresh every 10 seconds — keeps doctor and staff views in sync without WebSocket
+    const interval = setInterval(loadQueue, 10_000);
+    return () => clearInterval(interval);
+  }, [loadQueue]);
 
   const addToQueue = async (patientId: string) => {
     try { await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, token); loadQueue(); }
@@ -113,22 +118,19 @@ export default function QueuePage({ token, role }: Props) {
   };
 
   const filtered = patients.filter(p => p.full_name.toLowerCase().includes(search.toLowerCase()));
-  const statusColors: Record<string, string> = { waiting: 'bg-zinc-700 text-zinc-300', in_consultation: 'bg-blue-500/20 text-blue-400', done: 'bg-emerald-500/20 text-emerald-400' };
+  const statusColors: Record<string, string> = { waiting: 'bg-zinc-100 text-zinc-500', in_consultation: 'bg-blue-100 text-blue-600', done: 'bg-emerald-100 text-emerald-600' };
   const statusLabels: Record<string, string> = { waiting: 'Waiting', in_consultation: 'In Consultation', done: 'Done' };
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-zinc-50 flex-col md:flex-row">
-      {/* Staff: patient search panel — hidden on mobile, shown on md+ */}
+    <div className="flex-1 flex overflow-hidden bg-zinc-100 flex-col md:flex-row">
+      {/* Staff: patient search panel */}
       {role === 'staff' && (
-        <div className="hidden md:flex w-80 lg:w-96 bg-white border-r border-zinc-200 flex-col flex-shrink-0">
-          <div className="p-5 border-b border-zinc-100">
+        <div className="hidden md:flex w-80 lg:w-96 flex-col flex-shrink-0 p-3 md:p-4 gap-2">
+          {/* Header card */}
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-bold text-lg text-zinc-900">Add to Queue</h2>
               <div className="flex gap-2">
-                <button onClick={() => setShowAIUpload(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium">
-                  <Upload className="w-4 h-4" /> AI Upload
-                </button>
                 <button onClick={() => setShowAddPatient(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium">
                   <UserPlus className="w-4 h-4" /> New Patient
@@ -136,141 +138,153 @@ export default function QueuePage({ token, role }: Props) {
               </div>
             </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patients..."
-                className="w-full pl-10 pr-3 py-3 bg-zinc-100 rounded-xl text-base outline-none" />
+                className="w-full pl-10 pr-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-xl text-base outline-none focus:ring-2 focus:ring-emerald-500/20" />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto divide-y divide-zinc-100">
-            {filtered.map(p => {
-              const inQueue = queue.some(q => q.patient_id === p.id);
-              return (
-                <div key={p.id} className="p-4 flex items-center gap-3 hover:bg-zinc-50">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
-                    {p.profile_photo_path ? <img src={`/${p.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : p.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+          {/* Patient list card */}
+          <div className="flex-1 bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-y-auto divide-y divide-zinc-100">
+              {filtered.map(p => {
+                const inQueue = queue.some(q => q.patient_id === p.id);
+                return (
+                  <div key={p.id} className="p-3.5 flex items-center gap-3 hover:bg-zinc-50 transition-colors">
+                    <div className="w-9 h-9 rounded-xl bg-zinc-100 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
+                      {p.profile_photo_path ? <img src={`/${p.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : p.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                    </div>
+                    <span className="flex-1 text-sm text-zinc-800 truncate font-medium">{p.full_name}</span>
+                    <button onClick={() => addToQueue(p.id)} disabled={inQueue}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${inQueue ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
+                      {inQueue ? 'Added' : '+ Add'}
+                    </button>
                   </div>
-                  <span className="flex-1 text-base text-zinc-800 truncate">{p.full_name}</span>
-                  <button onClick={() => addToQueue(p.id)} disabled={inQueue}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium ${inQueue ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
-                    {inQueue ? 'Added' : '+ Add'}
-                  </button>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
 
       {/* Queue list */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 md:p-5 border-b border-zinc-200 bg-white flex items-center justify-between flex-wrap gap-2">
+      <div className="flex-1 flex flex-col overflow-hidden p-3 md:p-4 gap-2">
+        {/* Queue header card */}
+        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 md:px-5 py-3 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-zinc-900">Today's Queue</h1>
-            <p className="text-sm md:text-base text-zinc-500">{queue.filter(q => q.status !== 'done').length} active · {queue.filter(q => q.status === 'done').length} done</p>
+            <p className="text-sm text-zinc-500">
+              {queue.filter(q => q.status !== 'done').length} active · {queue.filter(q => q.status === 'done').length} done
+              {lastUpdated && (
+                <span className="ml-2 text-zinc-400">
+                  · live <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse align-middle" />
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex gap-2">
             {role === 'admin' && (
               <>
-                <button onClick={callNext} className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-base font-medium flex items-center gap-2">
+                <button onClick={callNext} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-medium flex items-center gap-2">
                   <UserCheck className="w-4 h-4" /> Call Next
                 </button>
-                <button onClick={() => setResetConfirm(true)} className="px-5 py-2.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl text-base font-medium">
+                <button onClick={() => setResetConfirm(true)} className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium">
                   Reset Queue
                 </button>
               </>
             )}
             {role === 'staff' && (
-              <button onClick={archiveDay} className="px-5 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-xl text-base font-medium flex items-center gap-2">
+              <button onClick={archiveDay} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-sm font-medium flex items-center gap-2">
                 <ClipboardList className="w-4 h-4" /> Archive Day
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        {/* Queue entries */}
+        <div className="flex-1 overflow-y-auto space-y-1.5">
           {loading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+            </div>
           ) : queue.length === 0 ? (
-            <div className="text-center py-16 text-zinc-400">
+            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm text-center py-16 text-zinc-400">
               <ListOrdered className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>Queue is empty</p>
+              <p className="font-medium">Queue is empty</p>
               {role === 'staff' && <p className="text-sm mt-1">Search for patients on the left to add them</p>}
             </div>
           ) : (
-            <div className="space-y-2">
-              {queue.map(entry => (
-                <div key={entry.id}
-                  draggable={role === 'staff'}
-                  onDragStart={() => setDragId(entry.id)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={() => handleDrop(entry.id)}
-                  onDoubleClick={() => openPatientRecord(entry.patient_id)}
-                  title="Double-click to view patient record"
-                  className={`bg-white border border-zinc-200 rounded-xl p-3 md:py-5 md:px-6 flex flex-col md:flex-row md:items-center gap-3 md:gap-5 transition-all ${role === 'staff' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${dragId === entry.id ? 'opacity-50' : ''}`}>
-                  {/* Top row: position + avatar + name + status */}
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 md:w-11 md:h-11 rounded-full bg-zinc-100 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0">{entry.position}</div>
-                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
-                      {entry.profile_photo_path ? <img src={`/${entry.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : entry.patient_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-base text-zinc-900 truncate">{entry.patient_name}</p>
-                        <AnimatePresence mode="wait">
-                          <motion.span
-                            key={entry.status}
-                            initial={{ opacity: 0, scale: 0.85 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.85 }}
-                            transition={{ duration: 0.18 }}
-                            className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${statusColors[entry.status]}`}>
-                            {statusLabels[entry.status]}
-                          </motion.span>
-                        </AnimatePresence>
-                      </div>
-                      {entry.status !== 'done' && (
-                        <span className="text-xs text-zinc-400">
-                          {(() => {
-                            const mins = Math.floor((Date.now() - new Date(entry.created_at).getTime()) / 60000);
-                            if (mins < 1) return 'just added';
-                            if (mins < 60) return `${mins}m waiting`;
-                            return `${Math.floor(mins/60)}h ${mins%60}m waiting`;
-                          })()}
-                        </span>
-                      )}
-                    </div>
+            queue.map(entry => (
+              <div key={entry.id}
+                draggable={role === 'staff'}
+                onDragStart={() => setDragId(entry.id)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => handleDrop(entry.id)}
+                onDoubleClick={() => openPatientRecord(entry.patient_id)}
+                title="Double-click to view patient record"
+                className={`bg-white border border-zinc-200 rounded-2xl shadow-sm px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 md:gap-4 transition-all hover:border-zinc-300 ${role === 'staff' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${dragId === entry.id ? 'opacity-50 scale-[0.99]' : ''}`}>
+                {/* Position + avatar + name + status */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center text-xs font-bold text-zinc-500 flex-shrink-0">{entry.position}</div>
+                  <div className="w-9 h-9 rounded-xl bg-zinc-100 flex items-center justify-center text-sm font-bold text-zinc-600 flex-shrink-0 overflow-hidden">
+                    {entry.profile_photo_path ? <img src={`/${entry.profile_photo_path}`} className="w-full h-full object-cover" alt="" /> : entry.patient_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
-                  {/* Bottom row on mobile: remarks + actions */}
-                  <div className="flex items-center gap-2 md:contents">
-                    <input defaultValue={entry.remarks || ''} onBlur={e => updateRemarks(entry.id, e.target.value)}
-                      placeholder="Remarks..." className="flex-1 md:w-48 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm outline-none focus:border-emerald-400" onClick={e => e.stopPropagation()} />
-                    {role === 'admin' && (
-                      <div className="flex gap-2 flex-shrink-0">
-                        <button onClick={() => openPatientRecord(entry.patient_id)} className="p-2 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600" title="View record">
-                          <Eye className="w-4 h-4 md:w-5 md:h-5" />
-                        </button>
-                        {entry.status === 'in_consultation' && (
-                          <button onClick={() => setDoneConfirm(entry.id)} className="px-3 md:px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium">Done</button>
-                        )}
-                      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm text-zinc-900 truncate">{entry.patient_name}</p>
+                      <AnimatePresence mode="wait">
+                        <motion.span
+                          key={entry.status}
+                          initial={{ opacity: 0, scale: 0.85 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.85 }}
+                          transition={{ duration: 0.18 }}
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${statusColors[entry.status]}`}>
+                          {statusLabels[entry.status]}
+                        </motion.span>
+                      </AnimatePresence>
+                    </div>
+                    {entry.status !== 'done' && (
+                      <span className="text-xs text-zinc-400">
+                        {(() => {
+                          const mins = Math.floor((Date.now() - new Date(entry.created_at).getTime()) / 60000);
+                          if (mins < 1) return 'just added';
+                          if (mins < 60) return `${mins}m waiting`;
+                          return `${Math.floor(mins/60)}h ${mins%60}m waiting`;
+                        })()}
+                      </span>
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
+                {/* Remarks + actions */}
+                <div className="flex items-center gap-2 md:contents">
+                  <input defaultValue={entry.remarks || ''} onBlur={e => updateRemarks(entry.id, e.target.value)}
+                    placeholder="Remarks..." className="flex-1 md:w-44 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs outline-none focus:border-emerald-400 transition-colors" onClick={e => e.stopPropagation()} />
+                  {role === 'admin' && (
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => openPatientRecord(entry.patient_id)} className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600 transition-colors" title="View record">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {entry.status === 'in_consultation' && (
+                        <button onClick={() => setDoneConfirm(entry.id)} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold transition-colors">Done</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>
 
       {/* Done confirmation */}
       {doneConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Mark as Done?</h3>
-            <p className="text-zinc-400 text-sm mb-5">This will mark the consultation as complete.</p>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-base font-bold text-zinc-900 mb-1.5">Mark as Done?</h3>
+            <p className="text-zinc-500 text-sm mb-5">This will mark the consultation as complete.</p>
             <div className="flex gap-3">
-              <button onClick={() => setDoneConfirm(null)} className="flex-1 py-2 bg-zinc-700 text-white rounded-xl text-sm">Cancel</button>
-              <button onClick={() => markDone(doneConfirm)} className="flex-1 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium">Confirm Done</button>
+              <button onClick={() => setDoneConfirm(null)} className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors">Cancel</button>
+              <button onClick={() => markDone(doneConfirm)} className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold transition-colors">Confirm Done</button>
             </div>
           </div>
         </div>
@@ -278,13 +292,13 @@ export default function QueuePage({ token, role }: Props) {
 
       {/* Reset confirmation */}
       {resetConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Reset Queue?</h3>
-            <p className="text-zinc-400 text-sm mb-5">This will remove all active queue entries for today.</p>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-base font-bold text-zinc-900 mb-1.5">Reset Queue?</h3>
+            <p className="text-zinc-500 text-sm mb-5">This will remove all active queue entries for today.</p>
             <div className="flex gap-3">
-              <button onClick={() => setResetConfirm(false)} className="flex-1 py-2 bg-zinc-700 text-white rounded-xl text-sm">Cancel</button>
-              <button onClick={resetQueue} className="flex-1 py-2 bg-red-500 text-white rounded-xl text-sm font-medium">Reset</button>
+              <button onClick={() => setResetConfirm(false)} className="flex-1 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-sm font-medium transition-colors">Cancel</button>
+              <button onClick={resetQueue} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-colors">Reset</button>
             </div>
           </div>
         </div>
@@ -309,22 +323,6 @@ export default function QueuePage({ token, role }: Props) {
           token={token}
           onClose={() => setShowAddPatient(false)}
           onSaved={handleNewPatientSaved}
-        />
-      )}
-
-      {showAIUpload && (
-        <AIUploadPreviewModal
-          token={token}
-          onClose={() => setShowAIUpload(false)}
-          onSaved={async (patientId) => {
-            setShowAIUpload(false);
-            try {
-              const updated: Patient[] = await api('/api/patients', {}, token);
-              setPatients(updated);
-              await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, token);
-              await loadQueue();
-            } catch (err) { console.error(err); }
-          }}
         />
       )}
 
@@ -363,7 +361,10 @@ export default function QueuePage({ token, role }: Props) {
           patientId={appointmentEntry.patient_id}
           patientName={appointmentEntry.patient_name}
           onClose={() => { setShowAppointmentModal(false); setAppointmentEntry(null); }}
-          onSaved={() => { setShowAppointmentModal(false); setAppointmentEntry(null); }}
+          onSaved={() => {
+            // Only clear the entry — modal stays mounted to show confirmation link
+            // Modal calls onClose itself when user clicks "Done"
+          }}
         />
       )}
     </div>

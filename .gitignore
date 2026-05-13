@@ -64,6 +64,18 @@ backup*.sql
 database_backup/
 backups/
 
+# Explicitly ALLOW these schema/migration/seed files in git:
+!database/full_schema.sql
+!database/seed_demo_data.sql
+!database/patient_verification_migration.sql
+!database/appointment-lifecycle-migration.sql
+!database/vitals_migration.sql
+!database/abc_clinic_migration.sql
+!database/auth_schema.sql
+!database/medical_charts_schema.sql
+!database/superadmin_overhaul_migration.sql
+!database/audit_logs_migration.sql
+
 # PostgreSQL data directories
 pgdata/
 postgres-data/

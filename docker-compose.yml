@@ -79,6 +79,13 @@ services:
       SMS_API_URL: ${SMS_API_URL:-}
       SMS_API_KEY: ${SMS_API_KEY:-}
       SMS_SENDER_NAME: ${SMS_SENDER_NAME:-ABCClinic}
+      CLINIC_PHONE: ${CLINIC_PHONE:-}
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASS: ${EMAIL_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-ABCare OmniFlow <noreply@abcclinic.com>}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - uploads_data:/app/uploads
     depends_on:

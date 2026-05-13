@@ -67,6 +67,13 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Name validation
+    const nameTrimmed = name.trim();
+    if (nameTrimmed.length < 2) { setError('Name must be at least 2 characters'); return; }
+    if (!/^[a-zA-ZÀ-ÿ\s'\-\.]+$/.test(nameTrimmed)) { setError('Name must contain letters only — no numbers or special characters'); return; }
+    if (nameTrimmed.split(/\s+/).filter(Boolean).length < 2) { setError('Please enter your full name (first and last name)'); return; }
+
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
     if (password.length < 12) { setError('Password must be at least 12 characters'); return; }
     if (!/[A-Z]/.test(password)) { setError('Password needs an uppercase letter'); return; }
@@ -120,13 +127,13 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
     finally { setIsLoading(false); }
   };
 
-  const inputCls = 'w-full pl-12 pr-4 py-3.5 bg-zinc-800/50 border border-zinc-700 text-white rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-500';
+  const inputCls = 'w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl animate-pulse delay-1000" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl animate-pulse delay-1000" />
       </div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative w-full max-w-md">
@@ -135,8 +142,8 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4 shadow-lg shadow-emerald-500/20">
             <Activity className="w-8 h-8 text-zinc-950" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-2">ABCare OmniFlow</h1>
-          <p className="text-zinc-400">Create your clinic account</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">ABCare OmniFlow</h1>
+          <p className="text-slate-500">Create your clinic account</p>
         </div>
 
         {/* Step indicator */}
@@ -150,25 +157,25 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
               <React.Fragment key={label}>
                 <div className="flex items-center gap-2">
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                    done ? 'bg-emerald-500 text-white' : active ? 'bg-emerald-500/20 border-2 border-emerald-500 text-emerald-400' : 'bg-zinc-800 text-zinc-500'
+                    done ? 'bg-emerald-500 text-white' : active ? 'bg-emerald-50 border-2 border-emerald-500 text-emerald-600' : 'bg-slate-100 text-slate-400'
                   }`}>
                     {done ? '✓' : stepNum}
                   </div>
-                  <span className={`text-xs font-medium ${active ? 'text-emerald-400' : done ? 'text-zinc-400' : 'text-zinc-600'}`}>{label}</span>
+                  <span className={`text-xs font-medium ${active ? 'text-emerald-600' : done ? 'text-slate-500' : 'text-slate-400'}`}>{label}</span>
                 </div>
-                {i < 2 && <div className={`flex-1 h-px max-w-8 ${done ? 'bg-emerald-500' : 'bg-zinc-700'}`} />}
+                {i < 2 && <div className={`flex-1 h-px max-w-8 ${done ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
               </React.Fragment>
             );
           })}
         </div>
 
-        <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-3xl shadow-2xl p-8">
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-xl shadow-slate-200/60 p-8">
           <AnimatePresence mode="wait">
 
             {/* ── STEP 1: Account form ── */}
             {step === 'form' && (
               <motion.div key="form" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                <button onClick={onBack} className="mb-5 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm">
+                <button onClick={onBack} className="mb-5 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors text-sm">
                   <ArrowLeft className="w-4 h-4" /> Back to login
                 </button>
 
@@ -176,9 +183,9 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
 
                 {!loadingAvail && !availability?.registration_open && (
                   <div className="text-center py-8">
-                    <Shield className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-white mb-2">Registration Closed</h2>
-                    <p className="text-zinc-400 text-sm">All 4 clinic accounts have been created.</p>
+                    <Shield className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-slate-900 mb-2">Registration Closed</h2>
+                    <p className="text-slate-500 text-sm">All 4 clinic accounts have been created.</p>
                     <button onClick={onBack} className="mt-6 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium">Back to Login</button>
                   </div>
                 )}
@@ -186,64 +193,70 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
                 {!loadingAvail && availability?.registration_open && (
                   <>
                     {/* Slot counter */}
-                    <div className="mb-5 p-3 bg-zinc-800/50 rounded-xl border border-zinc-700 flex gap-4 text-sm">
+                    <div className="mb-5 p-3 bg-slate-50 rounded-xl border border-slate-200 flex gap-4 text-sm">
                       <div className="flex-1 text-center">
-                        <div className={`text-lg font-bold ${availability.staff_slots > 0 ? 'text-emerald-400' : 'text-zinc-600'}`}>{availability.staff_slots}/2</div>
-                        <div className="text-zinc-500 text-xs">Staff slots</div>
+                        <div className={`text-lg font-bold ${availability.staff_slots > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{2 - availability.staff_slots}/2</div>
+                        <div className="text-slate-500 text-xs">Staff slots used</div>
+                        <div className={`text-xs font-medium mt-0.5 ${availability.staff_slots > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {availability.staff_slots > 0 ? `${availability.staff_slots} open` : 'Full'}
+                        </div>
                       </div>
-                      <div className="w-px bg-zinc-700" />
+                      <div className="w-px bg-slate-200" />
                       <div className="flex-1 text-center">
-                        <div className={`text-lg font-bold ${availability.admin_slots > 0 ? 'text-blue-400' : 'text-zinc-600'}`}>{availability.admin_slots}/2</div>
-                        <div className="text-zinc-500 text-xs">Doctor slots</div>
+                        <div className={`text-lg font-bold ${availability.admin_slots > 0 ? 'text-blue-600' : 'text-slate-400'}`}>{2 - availability.admin_slots}/2</div>
+                        <div className="text-slate-500 text-xs">Doctor slots used</div>
+                        <div className={`text-xs font-medium mt-0.5 ${availability.admin_slots > 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                          {availability.admin_slots > 0 ? `${availability.admin_slots} open` : 'Full'}
+                        </div>
                       </div>
                     </div>
 
-                    {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" /><p className="text-sm text-red-400">{error}</p></div>}
+                    {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" /><p className="text-sm text-red-600">{error}</p></div>}
 
                     <form onSubmit={handleCreateAccount} className="space-y-4">
                       <div>
-                        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">Full Name</label>
-                        <div className="relative"><User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Full Name</label>
+                        <div className="relative"><User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                           <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputCls} placeholder="Dr. Juan Dela Cruz" /></div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">Email</label>
-                        <div className="relative"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
+                        <div className="relative"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className={inputCls} placeholder="doctor@abcclinic.com" /></div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">Role</label>
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Role</label>
                         <div className="grid grid-cols-2 gap-3">
                           <button type="button" onClick={() => setRole('staff')} disabled={availability.staff_slots <= 0}
-                            className={`py-3 rounded-xl text-sm font-medium border transition-colors ${role === 'staff' ? 'bg-emerald-500 border-emerald-500 text-white' : availability.staff_slots > 0 ? 'bg-zinc-800/50 border-zinc-700 text-zinc-300 hover:border-emerald-500' : 'bg-zinc-800/20 border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
+                            className={`py-3 rounded-xl text-sm font-medium border transition-colors ${role === 'staff' ? 'bg-emerald-500 border-emerald-500 text-white' : availability.staff_slots > 0 ? 'bg-white border-slate-200 text-slate-700 hover:border-emerald-400' : 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'}`}>
                             👤 Staff{availability.staff_slots <= 0 && <span className="block text-xs">(full)</span>}
                           </button>
                           <button type="button" onClick={() => setRole('admin')} disabled={availability.admin_slots <= 0}
-                            className={`py-3 rounded-xl text-sm font-medium border transition-colors ${role === 'admin' ? 'bg-blue-500 border-blue-500 text-white' : availability.admin_slots > 0 ? 'bg-zinc-800/50 border-zinc-700 text-zinc-300 hover:border-blue-500' : 'bg-zinc-800/20 border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
+                            className={`py-3 rounded-xl text-sm font-medium border transition-colors ${role === 'admin' ? 'bg-blue-500 border-blue-500 text-white' : availability.admin_slots > 0 ? 'bg-white border-slate-200 text-slate-700 hover:border-blue-400' : 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'}`}>
                             👨‍⚕️ Doctor{availability.admin_slots <= 0 && <span className="block text-xs">(full)</span>}
                           </button>
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">Password</label>
-                        <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Password</label>
+                        <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                           <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required className={`${inputCls} pr-12`} placeholder="Min 12 chars" />
-                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                             {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                           </button>
                         </div>
                         {password && <div className="mt-2 flex gap-1.5">
-                          <div className={`h-1.5 flex-1 rounded-full ${strength ? strengthColor : 'bg-zinc-700'}`} />
-                          <div className={`h-1.5 flex-1 rounded-full ${strength && strength !== 'weak' ? strengthColor : 'bg-zinc-700'}`} />
-                          <div className={`h-1.5 flex-1 rounded-full ${strength === 'strong' ? strengthColor : 'bg-zinc-700'}`} />
+                          <div className={`h-1.5 flex-1 rounded-full ${strength ? strengthColor : 'bg-slate-200'}`} />
+                          <div className={`h-1.5 flex-1 rounded-full ${strength && strength !== 'weak' ? strengthColor : 'bg-slate-200'}`} />
+                          <div className={`h-1.5 flex-1 rounded-full ${strength === 'strong' ? strengthColor : 'bg-slate-200'}`} />
                         </div>}
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">Confirm Password</label>
-                        <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Confirm Password</label>
+                        <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                           <input type={showConfirm ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
-                            className={`${inputCls} pr-12 ${confirmPassword && confirmPassword !== password ? 'border-red-500' : ''}`} placeholder="Repeat password" />
-                          <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                            className={`${inputCls} pr-12 ${confirmPassword && confirmPassword !== password ? 'border-red-400' : ''}`} placeholder="Repeat password" />
+                          <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                             {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                           </button>
                         </div>
@@ -262,11 +275,11 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
             {step === 'qr' && (
               <motion.div key="qr" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <div className="text-center mb-6">
-                  <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-500/10 rounded-2xl mb-3">
-                    <Smartphone className="w-7 h-7 text-emerald-400" />
+                  <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-50 rounded-2xl mb-3">
+                    <Smartphone className="w-7 h-7 text-emerald-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-white mb-1">Set Up Authenticator</h2>
-                  <p className="text-zinc-400 text-sm">Scan this QR code with Google Authenticator or Authy. This works offline forever after setup.</p>
+                  <h2 className="text-xl font-bold text-slate-900 mb-1">Set Up Authenticator</h2>
+                  <p className="text-slate-500 text-sm">Scan this QR code with Google Authenticator or Authy. This works offline forever after setup.</p>
                 </div>
 
                 {qrCode && (
@@ -277,13 +290,13 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
                   </div>
                 )}
 
-                <div className="mb-5 p-3 bg-zinc-800/50 rounded-xl border border-zinc-700">
-                  <p className="text-xs text-zinc-500 mb-1">Can't scan? Enter this key manually:</p>
-                  <p className="text-xs font-mono text-emerald-400 break-all">{mfaSecret}</p>
+                <div className="mb-5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">Can't scan? Enter this key manually:</p>
+                  <p className="text-xs font-mono text-emerald-600 break-all">{mfaSecret}</p>
                 </div>
 
-                <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl mb-5">
-                  <p className="text-xs text-blue-300">
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl mb-5">
+                  <p className="text-xs text-blue-700">
                     📱 <strong>Apps to use:</strong> Google Authenticator, Authy, Microsoft Authenticator<br/>
                     🔒 After scanning, this generates 6-digit codes every 30 seconds — no internet needed.
                   </p>
@@ -300,11 +313,11 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
             {step === 'verify' && (
               <motion.div key="verify" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <div className="text-center mb-6">
-                  <h2 className="text-xl font-bold text-white mb-1">Verify Your Code</h2>
-                  <p className="text-zinc-400 text-sm">Enter the 6-digit code from your authenticator app to confirm it's working.</p>
+                  <h2 className="text-xl font-bold text-slate-900 mb-1">Verify Your Code</h2>
+                  <p className="text-slate-500 text-sm">Enter the 6-digit code from your authenticator app to confirm it's working.</p>
                 </div>
 
-                {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" /><p className="text-sm text-red-400">{error}</p></div>}
+                {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" /><p className="text-sm text-red-600">{error}</p></div>}
 
                 {isLoading === false && mfaCode.length === 0 ? null : null}
 
@@ -314,7 +327,7 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
                     value={mfaCode}
                     onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     required maxLength={6}
-                    className="w-full px-4 py-5 bg-zinc-800/50 border border-zinc-700 text-white text-center text-3xl font-mono tracking-widest rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none"
+                    className="w-full px-4 py-5 bg-slate-50 border border-slate-200 text-slate-900 text-center text-3xl font-mono tracking-widest rounded-xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none"
                     placeholder="000000"
                     autoFocus
                   />
@@ -325,7 +338,7 @@ export default function SignupPage({ onBack, onSignupSuccess }: Props) {
                       : <><CheckCircle className="w-5 h-5" /> Activate Account</>}
                   </button>
                   <button type="button" onClick={() => { setStep('qr'); setError(''); setMfaCode(''); }}
-                    className="w-full text-sm text-zinc-400 hover:text-white transition-colors">
+                    className="w-full text-sm text-slate-500 hover:text-slate-900 transition-colors">
                     ← Back to QR code
                   </button>
                 </form>

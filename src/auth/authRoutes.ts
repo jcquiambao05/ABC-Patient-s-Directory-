@@ -12,8 +12,56 @@ import crypto from 'crypto';
 import { Pool } from 'pg';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import nodemailer from 'nodemailer';
 
 const router = Router();
+
+// ── Email transport (nodemailer via Gmail SMTP) ────────────────────────────
+function createEmailTransport() {
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
+  if (!user || !pass) return null;
+  return nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT || '587'),
+    secure: false, // TLS via STARTTLS
+    auth: { user, pass },
+  });
+}
+
+async function sendOtpEmail(toEmail: string, otp: string, userName: string): Promise<boolean> {
+  const transport = createEmailTransport();
+  if (!transport) {
+    console.log(`[EMAIL] No email config — OTP for ${toEmail}: ${otp}`);
+    return false;
+  }
+  try {
+    await transport.sendMail({
+      from: process.env.EMAIL_FROM || 'ABCare OmniFlow <noreply@abcclinic.com>',
+      to: toEmail,
+      subject: `ABCare OmniFlow — Your verification code: ${otp}`,
+      html: `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:24px;">
+          <div style="background:#10b981;width:44px;height:44px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:20px;">
+            <span style="color:white;font-weight:bold;font-size:18px;">A</span>
+          </div>
+          <h2 style="color:#111827;margin:0 0 8px;">Password Reset Code</h2>
+          <p style="color:#6b7280;margin:0 0 24px;">Hi ${userName}, use this code to reset your ABCare OmniFlow password:</p>
+          <div style="background:#f0fdf4;border:2px solid #10b981;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px;">
+            <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#065f46;">${otp}</span>
+          </div>
+          <p style="color:#9ca3af;font-size:13px;margin:0;">This code expires in <strong>10 minutes</strong>. If you did not request this, ignore this email.</p>
+        </div>
+      `,
+      text: `Hi ${userName},\n\nYour ABCare OmniFlow password reset code is: ${otp}\n\nThis code expires in 10 minutes.`,
+    });
+    console.log(`[EMAIL] OTP sent to ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`[EMAIL] Failed to send OTP to ${toEmail}:`, err);
+    return false;
+  }
+}
 
 // JWT Secret (should be in .env)
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -220,6 +268,16 @@ export default function initAuthRoutes(pool: Pool) {
       // Generate full access token (include role from DB)
       const token = generateToken(user.id, user.email, user.role || 'staff');
 
+      // Log the login event
+      try {
+        await pool.query(
+          'INSERT INTO audit_logs (user_id, user_email, action, entity_type, entity_id, description) VALUES ($1,$2,$3,$4,$5,$6)',
+          [user.id, user.email, 'LOGIN', 'session', null, `${user.name || user.email} signed in as ${user.role || 'staff'}`]
+        );
+      } catch (auditErr) {
+        console.error('[AUDIT] Login audit failed:', (auditErr as Error).message);
+      }
+
       res.json({
         token,
         user: {
@@ -279,6 +337,16 @@ export default function initAuthRoutes(pool: Pool) {
       // Generate full access token
       const token = generateToken(user.id, user.email, user.role || 'staff');
 
+      // Log the MFA login event
+      try {
+        await pool.query(
+          'INSERT INTO audit_logs (user_id, user_email, action, entity_type, entity_id, description) VALUES ($1,$2,$3,$4,$5,$6)',
+          [user.id, user.email, 'LOGIN', 'session', null, `${user.name || user.email} signed in via MFA as ${user.role || 'staff'}`]
+        );
+      } catch (auditErr) {
+        console.error('[AUDIT] MFA login audit failed:', (auditErr as Error).message);
+      }
+
       res.json({
         token,
         user: {
@@ -295,96 +363,105 @@ export default function initAuthRoutes(pool: Pool) {
     }
   });
 
-  // POST /api/auth/forgot-password
+  // POST /api/auth/forgot-password — sends a 6-digit OTP to the user's email
   router.post('/forgot-password', async (req: Request, res: Response) => {
     const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email required' });
-    }
+    if (!email) return res.status(400).json({ error: 'Email required' });
 
     try {
-      // Find user
       const result = await pool.query(
-        'SELECT id, email FROM admin_users WHERE email = $1',
+        'SELECT id, email, name, display_name, reset_token_expiry, reset_token_created_at FROM admin_users WHERE email = $1',
         [email.toLowerCase()]
       );
-
       const user = result.rows[0];
 
       // Always return success to prevent email enumeration
       if (!user) {
-        return res.json({ 
-          message: 'If an account exists with that email, password reset instructions have been sent.' 
+        return res.json({ message: 'If an account exists with that email, a verification code has been sent.' });
+      }
+
+      // Google OAuth accounts have no usable password — direct them to use Google Sign-In
+      const googleAllowed = process.env.GOOGLE_ALLOWED_EMAILS?.split(',').map(e => e.trim().toLowerCase()) || [];
+      if (googleAllowed.includes(user.email.toLowerCase())) {
+        return res.json({
+          use_google: true,
+          message: 'This account uses Google Sign-In. Please use the "Continue with Google" button to log in.'
         });
       }
 
-      // Generate reset token
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
-      const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      // 1-minute cooldown — use dedicated reset_token_created_at column (timestamptz)
+      if (user.reset_token_created_at) {
+        const createdAt = new Date(user.reset_token_created_at).getTime();
+        const secondsSinceCreation = Math.floor((Date.now() - createdAt) / 1000);
+        if (secondsSinceCreation >= 0 && secondsSinceCreation < 60) {
+          const secondsLeft = 60 - secondsSinceCreation;
+          return res.status(429).json({
+            error: `Please wait ${secondsLeft} second${secondsLeft !== 1 ? 's' : ''} before requesting another code.`,
+            cooldown: secondsLeft
+          });
+        }
+      }
 
-      // Store reset token
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
       await pool.query(
-        'UPDATE admin_users SET reset_token = $1, reset_token_expiry = $2 WHERE id = $3',
-        [resetTokenHash, resetTokenExpiry, user.id]
+        'UPDATE admin_users SET reset_token = $1, reset_token_expiry = $2, reset_token_created_at = NOW() WHERE id = $3',
+        [otpHash, otpExpiry, user.id]
       );
 
-      // TODO: Send email with reset link
-      // For now, log the reset token (in production, send via email)
-      console.log(`Password reset token for ${email}: ${resetToken}`);
-      console.log(`Reset link: http://localhost:3000/reset-password?token=${resetToken}`);
+      const userName = user.display_name || user.name || email.split('@')[0];
+      const emailSent = await sendOtpEmail(user.email, otp, userName);
 
-      res.json({ 
-        message: 'If an account exists with that email, password reset instructions have been sent.' 
-      });
+      if (!emailSent) {
+        // Email not configured — return OTP directly for local dev
+        return res.json({
+          message: 'Email not configured. Use this code to reset your password:',
+          dev_otp: otp,
+          note: 'Configure EMAIL_USER and EMAIL_PASS in .env to enable email delivery.'
+        });
+      }
 
+      res.json({ message: 'A 6-digit verification code has been sent to your email. It expires in 10 minutes.' });
     } catch (error) {
       console.error('Forgot password error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  // POST /api/auth/reset-password
+  // POST /api/auth/reset-password — accepts email + OTP + new password
   router.post('/reset-password', async (req: Request, res: Response) => {
-    const { token, newPassword } = req.body;
+    const { email, otp, newPassword } = req.body;
 
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: 'Token and new password required' });
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ error: 'Email, verification code, and new password are required' });
     }
-
-    // Validate password strength
-    if (newPassword.length < 12) {
-      return res.status(400).json({ error: 'Password must be at least 12 characters long' });
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
     try {
-      // Hash the token to compare with stored hash
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const otpHash = crypto.createHash('sha256').update(otp.trim()).digest('hex');
 
-      // Find user with valid reset token
       const result = await pool.query(
-        'SELECT * FROM admin_users WHERE reset_token = $1 AND reset_token_expiry > NOW()',
-        [tokenHash]
+        'SELECT * FROM admin_users WHERE email = $1 AND reset_token = $2 AND reset_token_expiry > NOW()',
+        [email.toLowerCase(), otpHash]
       );
 
       const user = result.rows[0];
-
       if (!user) {
-        return res.status(401).json({ error: 'Invalid or expired reset token' });
+        return res.status(401).json({ error: 'Invalid or expired verification code. Please request a new one.' });
       }
 
-      // Hash new password
       const passwordHash = await bcrypt.hash(newPassword, 12);
-
-      // Update password and clear reset token
       await pool.query(
-        'UPDATE admin_users SET password_hash = $1, reset_token = NULL, reset_token_expiry = NULL, password_changed_at = NOW() WHERE id = $2',
+        'UPDATE admin_users SET password_hash = $1, reset_token = NULL, reset_token_expiry = NULL, reset_token_created_at = NULL, password_changed_at = NOW() WHERE id = $2',
         [passwordHash, user.id]
       );
 
-      res.json({ message: 'Password reset successful' });
-
+      res.json({ message: 'Password updated successfully. You can now log in.' });
     } catch (error) {
       console.error('Reset password error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -571,6 +648,14 @@ export default function initAuthRoutes(pool: Pool) {
       // Generate JWT token
       const token = generateToken(user.id, user.email, user.role || 'staff');
 
+      // Log the Google OAuth login event (fire-and-forget, non-blocking)
+      pool.query(
+        'INSERT INTO audit_logs (user_id, user_email, action, entity_type, entity_id, description) VALUES ($1,$2,$3,$4,$5,$6)',
+        [user.id, user.email, 'LOGIN', 'session', null, `${user.name || user.email} signed in via Google as ${user.role || 'staff'}`]
+      ).catch(auditErr => {
+        console.error('[AUDIT] Google login audit failed:', (auditErr as Error).message);
+      });
+
       // Redirect to frontend with token
       res.redirect(`/?token=${token}`);
     })(req, res, next);
@@ -650,6 +735,19 @@ export default function initAuthRoutes(pool: Pool) {
     if (!['staff', 'admin'].includes(role)) {
       return res.status(400).json({ error: 'Role must be staff or admin' });
     }
+
+    // ── Name validation — must be a real name (letters only, min 2 chars, min 2 words) ──
+    const nameTrimmed = name.trim();
+    if (nameTrimmed.length < 2) {
+      return res.status(400).json({ error: 'Name must be at least 2 characters' });
+    }
+    if (!/^[a-zA-ZÀ-ÿ\s'\-\.]+$/.test(nameTrimmed)) {
+      return res.status(400).json({ error: 'Name must contain letters only (no numbers or special characters)' });
+    }
+    if (nameTrimmed.split(/\s+/).filter(Boolean).length < 2) {
+      return res.status(400).json({ error: 'Please enter your full name (first and last name)' });
+    }
+
     if (password !== confirmPassword) {
       return res.status(400).json({ error: 'Passwords do not match' });
     }
