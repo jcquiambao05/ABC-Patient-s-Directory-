@@ -222,6 +222,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   end_date         DATE,
   status           TEXT NOT NULL DEFAULT 'pending'
                    CHECK (status IN ('pending', 'confirmed', 'attended', 'no_show', 'cancelled')),
+  booking_type     TEXT NOT NULL DEFAULT 'standard'
+                   CHECK (booking_type IN ('standard', 'walk_in')),
   sms_sent         BOOLEAN NOT NULL DEFAULT FALSE,
   sms_sent_at      TIMESTAMP,
   created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP

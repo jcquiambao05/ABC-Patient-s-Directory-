@@ -24,5 +24,11 @@ ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_status_check;
 ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
   CHECK (status IN ('pending', 'confirmed', 'attended', 'no_show', 'cancelled'));
 
+-- 5. Appointment booking_type column
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_type TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_booking_type_check;
+ALTER TABLE appointments ADD CONSTRAINT appointments_booking_type_check
+  CHECK (booking_type IN ('standard', 'walk_in'));
+
 -- Done
 SELECT 'Migration complete' AS status;
