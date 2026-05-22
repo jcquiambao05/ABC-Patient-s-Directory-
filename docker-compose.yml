@@ -63,7 +63,7 @@ services:
     container_name: abccare-app
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "0.0.0.0:${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
@@ -111,3 +111,5 @@ volumes:
 networks:
   default:
     name: abccare-network
+     
+      

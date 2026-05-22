@@ -330,3 +330,7 @@ config.local.json
 # ============================================
 # END OF .gitignore
 # ============================================
+
+# Runtime PID files
+.ocr_pid
+.webapp_pid

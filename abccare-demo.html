@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ABCare OmniFlow</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f4f5;display:flex;height:100vh;overflow:hidden}
+.sidebar{width:200px;background:#09090b;color:#a1a1aa;display:flex;flex-direction:column;flex-shrink:0}
+.logo{padding:20px 16px;display:flex;align-items:center;gap:10px;color:white;font-weight:700;font-size:14px;border-bottom:1px solid #27272a}
+.logo-icon{width:32px;height:32px;background:#10b981;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#000;font-weight:900;font-size:15px;flex-shrink:0}
+.nav{flex:1;padding:10px 8px}
+.nav-item{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:2px;transition:all .15s}
+.nav-item:hover{background:#18181b;color:#e4e4e7}
+.nav-item.active{background:#18181b;color:white}
+.footer{padding:14px;border-top:1px solid #27272a}
+.role-box{background:#18181b;border-radius:8px;padding:10px}
+.role-lbl{font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.role-name{color:#10b981;font-size:12px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:5px}
+.dot{width:7px;height:7px;background:#10b981;border-radius:50%}
+.main{flex:1;display:flex;overflow:hidden}
+.plist{width:340px;background:#f4f4f5;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.lhdr{padding:16px 12px 10px;background:white;border-radius:14px;margin:10px 10px 6px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.ltitle{font-size:18px;font-weight:700;color:#09090b}
+.lsub{font-size:11px;color:#71717a;margin-top:1px}
+.swrap{padding:0 10px 6px}
+.sbox{background:white;border-radius:14px;padding:9px 12px;display:flex;align-items:center;gap:7px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sbox input{border:none;outline:none;flex:1;font-size:13px;color:#09090b;background:transparent}
+.clist{flex:1;overflow-y:auto;padding:0 10px 10px}
+.clbl{display:flex;align-items:center;gap:7px;padding:7px 3px;margin-top:6px}
+.cletter{width:20px;height:20px;background:#10b981;color:white;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.ctxt{font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.08em}
+.ccard{background:white;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.prow{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;transition:background .1s;border-bottom:1px solid #f4f4f5}
+.prow:last-child{border-bottom:none}
+.prow:hover{background:#f9fafb}
+.prow.sel{background:#f0fdf4}
+.av{width:36px;height:36px;border-radius:9px;background:#e4e4e7;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#52525b;flex-shrink:0}
+.pinfo{flex:1;min-width:0}
+.pname{font-size:13px;font-weight:600;color:#09090b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta{font-size:11px;color:#71717a;margin-top:1px}
+.vbadge{font-size:9px;background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px}
+.detail{flex:1;background:white;border-left:1px solid #e4e4e7;display:flex;flex-direction:column;overflow:hidden}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a1a1aa}
+.dhdr{padding:14px 18px;border-bottom:1px solid #f4f4f5;display:flex;align-items:center;gap:10px}
+.dav{width:44px;height:44px;border-radius:11px;background:#e4e4e7;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#52525b;flex-shrink:0}
+.dname{font-size:15px;font-weight:700;color:#09090b}
+.dsub{font-size:12px;color:#71717a;margin-top:1px}
+.abar{padding:7px 14px;border-bottom:1px solid #f4f4f5;background:#fafafa;display:flex;gap:7px;align-items:center}
+.btn{padding:6px 12px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #e4e4e7;background:white;color:#52525b;display:inline-flex;align-items:center;gap:4px;transition:all .15s}
+.btn:hover{border-color:#a1a1aa;color:#09090b}
+.btn-blue{background:#3b82f6;color:white;border-color:#3b82f6}
+.btn-blue:hover{background:#2563eb;border-color:#2563eb;color:white}
+.btn-ml{margin-left:auto}
+.tabs{display:flex;border-bottom:1px solid #f4f4f5;overflow-x:auto}
+.tab{padding:11px 16px;font-size:12px;font-weight:500;color:#71717a;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:#09090b}
+.tab.active{color:#10b981;border-bottom-color:#10b981}
+.dbody{flex:1;overflow-y:auto;padding:18px}
+.igrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.icard{background:#fafafa;border-radius:10px;padding:12px}
+.ilbl{font-size:10px;color:#71717a;margin-bottom:3px}
+.ival{font-size:13px;font-weight:600;color:#09090b}
+.ifull{grid-column:1/-1}
+.stitle{font-size:11px;font-weight:700;color:#10b981;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px}
+.crow{border:1px solid #e4e4e7;border-radius:10px;padding:12px;margin-bottom:8px}
+.cdate{font-size:11px;color:#71717a;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+.rev{font-size:9px;background:#f0fdf4;color:#16a34a;padding:2px 7px;border-radius:3px;font-weight:600}
+.pend{font-size:9px;background:#fef9c3;color:#ca8a04;padding:2px 7px;border-radius:3px;font-weight:600}
+.clbl2{font-size:10px;color:#71717a;margin-top:7px;margin-bottom:1px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.ctxt2{font-size:12px;color:#09090b;line-height:1.5}
+.vrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.vchip{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:5px 8px;text-align:center;min-width:60px}
+.vlbl{font-size:8px;color:#52525b;font-weight:600;text-transform:uppercase}
+.vval{font-size:13px;font-weight:700;color:#065f46}
+.vunit{font-size:8px;color:#71717a}
+.rxrow{border:1px solid #e4e4e7;border-radius:10px;padding:10px 12px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:flex-start}
+.rxname{font-size:13px;font-weight:600;color:#09090b}
+.rxd{font-size:11px;color:#71717a;margin-top:1px}
+.rxbadge{font-size:10px;background:#eff6ff;color:#1d4ed8;padding:2px 7px;border-radius:5px;font-weight:600;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">A</div>ABCare OmniFlow
+  </div>
+  <nav class="nav">
+    <div class="nav-item active">👥 Directory</div>
+    <div class="nav-item">📋 Queue</div>
+    <div class="nav-item">📅 Appointments</div>
+    <div class="nav-item">📊 Dashboard</div>
+    <div class="nav-item">💬 Assistant</div>
+    <div class="nav-item">🕐 Audit</div>
+  </nav>
+  <div class="footer">
+    <div class="role-box">
+      <div class="role-lbl">Doctor / Admin</div>
+      <div class="role-name"><div class="dot"></div>Dr. Quiambao</div>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="plist">
+    <div class="lhdr">
+      <div class="ltitle">Patient Directory</div>
+      <div class="lsub">Organized A–Z · 3 patients</div>
+    </div>
+    <div class="swrap">
+      <div class="sbox">
+        <span>🔍</span>
+        <input type="text" placeholder="Search patients..." oninput="filter(this.value)">
+      </div>
+    </div>
+    <div class="clist" id="list"></div>
+  </div>
+
+  <div class="detail" id="detail">
+    <div class="empty">
+      <div style="font-size:40px;opacity:.2;margin-bottom:10px">👤</div>
+      <div style="font-size:14px;font-weight:600;color:#52525b">Select a patient</div>
+      <div style="font-size:12px;margin-top:3px">Click any patient to view their record</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const pts = [
+  {
+    id:0, name:'Aquino, Lourdes Fernandez', age:61, gender:'Female',
+    dob:'September 8, 1963', civil:'Widowed', contact:'09611234505',
+    occ:'Sari-sari Store Owner', ref:'Dr. Reyes, Cabanatuan Doctors Hospital',
+    addr:'78 Quezon St., Brgy. Kapitan Pepe, Cabanatuan City, Nueva Ecija',
+    verified:true,
+    conds:['Hypertension','Diabetes Mellitus Type 2 (Insulin-dependent)','CKD Stage 2'],
+    meds:'Insulin Glargine 24u OD, Amlodipine 10mg OD, Furosemide 80mg OD',
+    consults:[
+      {date:'Jan 15, 2026',rev:true,subj:'Nephrology follow-up done. Edema improved. Blood sugar better. Creatinine stable at 1.4 mg/dL.',plan:'CKD Stage 2 — stable. DM — improving. Continue current regimen.',vitals:{bp:'148/90',temp:'36.6',hr:'82',spo2:'97',wt:'69'}},
+      {date:'Oct 22, 2025',rev:true,subj:'Bilateral leg swelling worsening. Decreased urine output. Blood sugar poorly controlled.',plan:'CKD Stage 2 — worsening. Adjust insulin to 24 units. Increase Furosemide. Nephrology referral.',vitals:{bp:'172/104',temp:'36.9',hr:'94',spo2:'96',wt:'72'}}
+    ],
+    rx:[
+      {name:'Insulin Glargine',dose:'24 units',freq:'Once daily at bedtime',note:'Inject subcutaneously. Rotate injection sites.'},
+      {name:'Furosemide',dose:'80mg',freq:'Once daily morning',note:'Take early in the day. Monitor weight daily.'}
+    ]
+  },
+  {
+    id:1, name:'Dela Cruz, Eduardo Jose', age:67, gender:'Male',
+    dob:'November 22, 1957', civil:'Married', contact:'09281234502',
+    occ:'Retired Government Employee', ref:null,
+    addr:'123 Rizal Avenue, Brgy. Poblacion, Gapan City, Nueva Ecija',
+    verified:true,
+    conds:['Hypertension','Diabetes Mellitus Type 2','Coronary Artery Disease'],
+    meds:'Metformin 1g BID, Atorvastatin 40mg OD, Aspirin 80mg OD, Losartan 50mg OD',
+    consults:[
+      {date:'Mar 5, 2026',rev:true,subj:'HbA1c result: 7.2%. BP better. No chest pain.',plan:'DM Type 2 — near target. Add Sitagliptin 100mg OD.',vitals:{bp:'138/84',temp:'36.6',hr:'74',spo2:'98',wt:'76'}},
+      {date:'Sep 3, 2025',rev:true,subj:'Chest tightness on exertion. Fasting blood sugar elevated. Mild pedal edema.',plan:'CAD — stable angina. Increase Metformin to 1g BID. Refer to cardiologist.',vitals:{bp:'162/98',temp:'36.7',hr:'82',spo2:'97',wt:'78'}}
+    ],
+    rx:[
+      {name:'Metformin',dose:'1000mg',freq:'Twice daily',note:'Take with meals.'},
+      {name:'Atorvastatin',dose:'40mg',freq:'Once daily at bedtime',note:'Avoid grapefruit juice.'},
+      {name:'Aspirin',dose:'80mg',freq:'Once daily',note:'Take after meals.'}
+    ]
+  },
+  {
+    id:2, name:'Reyes, Maria Cristina', age:52, gender:'Female',
+    dob:'March 14, 1972', civil:'Married', contact:'09171234501',
+    occ:'Elementary School Teacher', ref:'Dr. Santos, PGH',
+    addr:'Blk 4 Lot 12 Sampaguita St., Brgy. San Isidro, Cabanatuan City, Nueva Ecija',
+    verified:false,
+    conds:['Hypertension','Hypothyroidism','Penicillin Allergy'],
+    meds:'Amlodipine 10mg OD, Levothyroxine 50mcg OD',
+    consults:[
+      {date:'Feb 18, 2026',rev:true,subj:'Routine follow-up. No new complaints. BP stable.',plan:'Hypertension — well controlled. Hypothyroidism — stable. Annual labs ordered.',vitals:{bp:'132/82',temp:'36.4',hr:'72',spo2:'99',wt:'66'}},
+      {date:'Aug 10, 2025',rev:true,subj:'Occasional headaches and fatigue. BP elevated at home.',plan:'Hypertension — controlled. Hypothyroidism — stable. Continue medications. Repeat TSH in 3 months.',vitals:{bp:'148/92',temp:'36.6',hr:'78',spo2:'98',wt:'68'}}
+    ],
+    rx:[
+      {name:'Amlodipine',dose:'10mg',freq:'Once daily',note:'Take in the morning. Monitor BP weekly.'},
+      {name:'Levothyroxine',dose:'50mcg',freq:'Once daily',note:'Take on empty stomach, 30 min before breakfast.'}
+    ]
+  }
+];
+
+let sel = null;
+let tab = 'general';
+
+function initials(n){return n.split(',')[0].trim().split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
+
+function render(list){
+  const grouped = {};
+  list.forEach(p=>{
+    const k = p.name[0].toUpperCase();
+    if(!grouped[k]) grouped[k]=[];
+    grouped[k].push(p);
+  });
+  let html = '';
+  Object.keys(grouped).sort().forEach(k=>{
+    html += `<div class="clbl"><div class="cletter">${k}</div><div class="ctxt">Cabinet ${k}</div></div>`;
+    html += '<div class="ccard">';
+    grouped[k].forEach(p=>{
+      html += `<div class="prow${sel===p.id?' sel':''}" onclick="select(${p.id})">
+        <div class="av">${initials(p.name)}</div>
+        <div class="pinfo">
+          <div class="pname">${p.name}${p.verified?'<span class="vbadge">✓ Verified</span>':''}</div>
+          <div class="pmeta">${p.age} yrs · ${p.gender}</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  });
+  document.getElementById('list').innerHTML = html;
+}
+
+function filter(q){
+  const f = pts.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
+  render(f);
+}
+
+function select(id){
+  sel = id;
+  tab = 'general';
+  render(pts);
+  showDetail();
+}
+
+function showDetail(){
+  const p = pts.find(x=>x.id===sel);
+  if(!p) return;
+  document.getElementById('detail').innerHTML = `
+    <div class="dhdr">
+      <div class="dav">${initials(p.name)}</div>
+      <div>
+        <div class="dname">${p.name}</div>
+        <div class="dsub">${p.gender} · ${p.age} yrs · ${p.civil}</div>
+      </div>
+    </div>
+    <div class="abar">
+      <button class="btn" onclick="alert('Archive: ${p.name}')">📦 Archive</button>
+      <button class="btn ${p.verified?'btn-blue':''}" onclick="toggleVerify(${p.id})">
+        🛡 ${p.verified?'Verified':'Verify Patient'}
+      </button>
+      <button class="btn btn-ml" onclick="alert('Print record for ${p.name}')">🖨 Print Record</button>
+    </div>
+    <div class="tabs">
+      <div class="tab${tab==='general'?' active':''}" onclick="setTab('general')">General</div>
+      <div class="tab${tab==='consults'?' active':''}" onclick="setTab('consults')">Consultations</div>
+      <div class="tab${tab==='rx'?' active':''}" onclick="setTab('rx')">Prescriptions</div>
+      <div class="tab${tab==='history'?' active':''}" onclick="setTab('history')">Med History</div>
+    </div>
+    <div class="dbody" id="dbody">${renderTab(p)}</div>
+  `;
+}
+
+function renderTab(p){
+  if(tab==='general') return `
+    <div class="igrid">
+      <div class="icard"><div class="ilbl">Date of Birth</div><div class="ival">${p.dob}</div></div>
+      <div class="icard"><div class="ilbl">Contact Number</div><div class="ival">${p.contact}</div></div>
+      <div class="icard"><div class="ilbl">Civil Status</div><div class="ival">${p.civil}</div></div>
+      <div class="icard"><div class="ilbl">Occupation</div><div class="ival">${p.occ}</div></div>
+      <div class="icard ifull"><div class="ilbl">Address</div><div class="ival">${p.addr}</div></div>
+      <div class="icard ifull"><div class="ilbl">Referred By</div><div class="ival">${p.ref||'—'}</div></div>
+    </div>`;
+
+  if(tab==='consults') return p.consults.map(c=>`
+    <div class="crow">
+      <div class="cdate"><span>${c.date}</span><span class="${c.rev?'rev':'pend'}">${c.rev?'Reviewed':'Pending'}</span></div>
+      <div class="clbl2">Subjective / Clinical Findings</div>
+      <div class="ctxt2">${c.subj}</div>
+      <div class="clbl2">Assessment / Plan</div>
+      <div class="ctxt2">${c.plan}</div>
+      <div class="vrow">
+        <div class="vchip"><div class="vlbl">BP</div><div class="vval">${c.vitals.bp}</div><div class="vunit">mmHg</div></div>
+        <div class="vchip"><div class="vlbl">Temp</div><div class="vval">${c.vitals.temp}</div><div class="vunit">°C</div></div>
+        <div class="vchip"><div class="vlbl">HR</div><div class="vval">${c.vitals.hr}</div><div class="vunit">bpm</div></div>
+        <div class="vchip"><div class="vlbl">SpO2</div><div class="vval">${c.vitals.spo2}</div><div class="vunit">%</div></div>
+        <div class="vchip"><div class="vlbl">Weight</div><div class="vval">${c.vitals.wt}</div><div class="vunit">kg</div></div>
+      </div>
+    </div>`).join('');
+
+  if(tab==='rx') return p.rx.length ? p.rx.map(r=>`
+    <div class="rxrow">
+      <div><div class="rxname">${r.name}</div><div class="rxd">${r.dose} · ${r.freq}</div><div class="rxd" style="margin-top:3px;font-style:italic">${r.note}</div></div>
+      <div class="rxbadge">Active</div>
+    </div>`).join('') : '<div style="color:#a1a1aa;font-size:13px;padding:20px 0">No prescriptions on record.</div>';
+
+  if(tab==='history') return `
+    <div class="stitle">Known Conditions</div>
+    ${p.conds.map(c=>`<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;font-size:13px"><div style="width:10px;height:10px;background:#10b981;border-radius:3px;flex-shrink:0"></div>${c}</div>`).join('')}
+    <div class="stitle">Maintenance Medications</div>
+    <div style="font-size:13px;color:#09090b;line-height:1.6">${p.meds}</div>`;
+
+  return '';
+}
+
+function setTab(t){
+  tab = t;
+  const p = pts.find(x=>x.id===sel);
+  document.querySelectorAll('.tab').forEach(el=>{
+    el.className = 'tab' + (el.textContent.toLowerCase().includes(t.substring(0,4))||
+      (t==='consults'&&el.textContent==='Consultations')||
+      (t==='rx'&&el.textContent==='Prescriptions')||
+      (t==='history'&&el.textContent==='Med History')||
+      (t==='general'&&el.textContent==='General') ? ' active':'');
+  });
+  document.getElementById('dbody').innerHTML = renderTab(p);
+}
+
+function toggleVerify(id){
+  const p = pts.find(x=>x.id===id);
+  p.verified = !p.verified;
+  render(pts);
+  showDetail();
+}
+
+render(pts);
+</script>
+</body>
+</html>

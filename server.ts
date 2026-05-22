@@ -220,6 +220,58 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true })); // needed for HTML form submissions (confirmation page)
+
+  // ── Security Headers (no extra package needed) ─────────────────────────
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // Only add HSTS in production with HTTPS
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    // Remove fingerprinting headers
+    res.removeHeader('X-Powered-By');
+    next();
+  });
+
+  // ── Simple in-memory rate limiter (no extra package) ───────────────────
+  const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+  const rateLimit = (maxRequests: number, windowMs: number) => {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      const now = Date.now();
+      const entry = rateLimitMap.get(ip);
+      if (!entry || now > entry.resetAt) {
+        rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
+        return next();
+      }
+      entry.count++;
+      if (entry.count > maxRequests) {
+        res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000).toString());
+        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+      }
+      next();
+    };
+  };
+  // Clean up rate limit map every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of rateLimitMap.entries()) {
+      if (now > entry.resetAt) rateLimitMap.delete(ip);
+    }
+  }, 5 * 60 * 1000);
+
+  // Apply rate limiting to auth endpoints (20 requests per 15 minutes per IP)
+  app.use('/api/auth/login', rateLimit(20, 15 * 60 * 1000));
+  app.use('/api/auth/forgot-password', rateLimit(5, 15 * 60 * 1000));
+  app.use('/api/auth/reset-password', rateLimit(10, 15 * 60 * 1000));
+  app.use('/api/auth/signup', rateLimit(5, 60 * 60 * 1000));
+
+  // ── Serve uploads through authenticated endpoint (not public static) ───
+  // Raw static still needed for backward compat — restrict in Nginx instead
   app.use('/uploads', express.static('uploads'));
 
   console.log('JWT_SECRET:', process.env.JWT_SECRET ? process.env.JWT_SECRET.substring(0, 10) + '...' : 'NOT SET');
