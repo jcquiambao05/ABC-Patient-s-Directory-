@@ -1,7 +1,8 @@
 #!/bin/bash
 # ============================================================
-# ABCare OmniFlow — Ubuntu 22.04 LTS Production Deploy Script
-# Run as root or with sudo on a fresh Ubuntu 22.04 server
+# ABCare OmniFlow — Ubuntu 22.04/24.04 LTS Production Deploy Script
+# Tested on Ubuntu 22.04 LTS (Jammy) and 24.04 LTS (Noble Numbat)
+# Run as root or with sudo on a fresh Ubuntu server
 # Usage: sudo bash deploy-ubuntu.sh
 # ============================================================
 

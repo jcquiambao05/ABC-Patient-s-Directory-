@@ -11,6 +11,8 @@ import multer from 'multer';
 import fs from 'fs';
 import crypto from 'crypto';
 import cron from 'node-cron';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 // ESM __dirname polyfill (required when "type": "module" in package.json)
 const __filename = fileURLToPath(import.meta.url);
@@ -221,57 +223,26 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true })); // needed for HTML form submissions (confirmation page)
 
-  // ── Security Headers (no extra package needed) ─────────────────────────
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    // Only add HSTS in production with HTTPS
-    if (process.env.NODE_ENV === 'production') {
-      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    }
-    // Remove fingerprinting headers
-    res.removeHeader('X-Powered-By');
-    next();
+  // ── Security headers (helmet) ──────────────────────────────────────────
+  app.use(helmet({
+    crossOriginEmbedderPolicy: false, // allow uploads/media to load
+    contentSecurityPolicy: false,     // SPA handles its own CSP
+    hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
+  }));
+
+  // ── Rate limiting (express-rate-limit) ─────────────────────────────────
+  const makeLimit = (max: number, windowMs: number) => rateLimit({
+    max, windowMs,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please try again later.' },
   });
+  app.use('/api/auth/login',           makeLimit(20,  15 * 60 * 1000));
+  app.use('/api/auth/forgot-password', makeLimit(5,   15 * 60 * 1000));
+  app.use('/api/auth/reset-password',  makeLimit(10,  15 * 60 * 1000));
+  app.use('/api/auth/signup',          makeLimit(5,   60 * 60 * 1000));
 
-  // ── Simple in-memory rate limiter (no extra package) ───────────────────
-  const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-  const rateLimit = (maxRequests: number, windowMs: number) => {
-    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-      const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      const now = Date.now();
-      const entry = rateLimitMap.get(ip);
-      if (!entry || now > entry.resetAt) {
-        rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
-        return next();
-      }
-      entry.count++;
-      if (entry.count > maxRequests) {
-        res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000).toString());
-        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
-      }
-      next();
-    };
-  };
-  // Clean up rate limit map every 5 minutes
-  setInterval(() => {
-    const now = Date.now();
-    for (const [ip, entry] of rateLimitMap.entries()) {
-      if (now > entry.resetAt) rateLimitMap.delete(ip);
-    }
-  }, 5 * 60 * 1000);
-
-  // Apply rate limiting to auth endpoints (20 requests per 15 minutes per IP)
-  app.use('/api/auth/login', rateLimit(20, 15 * 60 * 1000));
-  app.use('/api/auth/forgot-password', rateLimit(5, 15 * 60 * 1000));
-  app.use('/api/auth/reset-password', rateLimit(10, 15 * 60 * 1000));
-  app.use('/api/auth/signup', rateLimit(5, 60 * 60 * 1000));
-
-  // ── Serve uploads through authenticated endpoint (not public static) ───
-  // Raw static still needed for backward compat — restrict in Nginx instead
+  // ── Serve uploads (restrict access in Nginx for production) ───────────
   app.use('/uploads', express.static('uploads'));
 
   console.log('JWT_SECRET:', process.env.JWT_SECRET ? process.env.JWT_SECRET.substring(0, 10) + '...' : 'NOT SET');
@@ -954,52 +925,26 @@ async function startServer() {
     if (!patient_id || !appointment_date) return res.status(400).json({ error: 'patient_id and appointment_date are required' });
     const createdBy = (req as any).user?.userId;
     try {
-      // Insert with status = 'pending' (new lifecycle — patient must confirm)
-      // Exception: walk-ins are confirmed immediately (patient is physically present)
-      const isWalkIn = (booking_type || 'standard') === 'walk_in';
-      const initialStatus = isWalkIn ? 'confirmed' : 'pending';
+      // All appointments auto-confirm — no patient confirmation link required.
+      // Booking type is kept for record-keeping (walk_in vs standard) but both
+      // start as 'confirmed' so staff can immediately see them on the calendar.
+      const resolvedType = booking_type || 'standard';
 
       const r = await pool.query(`
         INSERT INTO appointments (patient_id, created_by, title, notes, appointment_date, appointment_time, frequency, frequency_every, end_date, status, booking_type)
-        VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9::date,$10,$11) RETURNING *
-      `, [patient_id, createdBy, title||'Follow-up Consultation', notes||null, appointment_date, appointment_time||null, frequency||'once', frequency_every||1, end_date||null, initialStatus, booking_type||'standard']);
+        VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9::date,'confirmed',$10) RETURNING *
+      `, [patient_id, createdBy, title||'Follow-up Consultation', notes||null, appointment_date, appointment_time||null, frequency||'once', frequency_every||1, end_date||null, resolvedType]);
 
       const appointment = r.rows[0];
 
-      // Walk-ins are confirmed immediately — no token needed
-      if (isWalkIn) {
-        await pool.query(
-          `INSERT INTO appointment_status_log (appointment_id, old_status, new_status, changed_by)
-           VALUES ($1, 'none', 'confirmed', $2)`,
-          [appointment.id, createdBy]
-        );
-        return res.json({ ...appointment, confirm_link: null });
-      }
-
-      // Generate confirmation token and store hashed version
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-
-      await pool.query(
-        `INSERT INTO appointment_tokens (token_hash, appointment_id, expires_at)
-         VALUES ($1, $2, $3)`,
-        [tokenHash, appointment.id, expiresAt]
-      );
-
-      // Write initial status to audit log
+      // Audit log — appointment created as confirmed
       await pool.query(
         `INSERT INTO appointment_status_log (appointment_id, old_status, new_status, changed_by)
-         VALUES ($1, 'none', 'pending', $2)`,
+         VALUES ($1, 'none', 'confirmed', $2)`,
         [appointment.id, createdBy]
       );
 
-      // Build confirmation link
-      const host = req.headers.host || 'localhost:3000';
-      const protocol = req.headers['x-forwarded-proto'] || 'http';
-      const confirmLink = `${protocol}://${host}/confirm?token=${rawToken}`;
-
-      res.json({ ...appointment, confirm_link: confirmLink });
+      res.json({ ...appointment, confirm_link: null });
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
   });
 

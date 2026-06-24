@@ -14,7 +14,7 @@ It has solid authentication foundations but requires hardening before live deplo
 
 ## Critical Issues (Fix Before Going Live)
 
-### 1. 🔴 No HTTPS
+### 1.  No HTTPS
 - App runs on HTTP — all data including JWT tokens transmitted in plaintext
 - **Fix:** Use Nginx + Let's Encrypt SSL (see deploy script)
 

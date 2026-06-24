@@ -630,7 +630,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
 
         {/* Footer */}
         <div className="text-center mt-6 space-y-2">
-          <p className="text-slate-400 text-sm"></p>
+          <p className="text-slate-400 text-sm">  </p>
           {mode === 'login' && (
             <SignupLink />
           )}
