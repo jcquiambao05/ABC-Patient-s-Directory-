@@ -11,7 +11,7 @@ A full-stack web application for ABC MD Medical Clinic. Manages patient records,
 - **Database:** PostgreSQL 15 (Supabase locally, Docker in production)
 - **Auth:** JWT + TOTP MFA + Google OAuth
 - **Email:** Gmail SMTP (Nodemailer) — password reset OTP
-- **SMS:** Semaphore API — appointment reminders
+
 
 ---
 
