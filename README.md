@@ -41,13 +41,7 @@ docker compose up -d
 open http://localhost:3000
 ```
 
-**Default credentials** (change after first login):
 
-| Role | Username | Password |
-|------|----------|----------|
-| Superadmin | `adminabcare` | `Admin@ABCare2026` |
-| Doctor | `doctor@abcclinic.com` | `Doctor@ABC2026!` |
-| Staff | `staff@abcclinic.com` | `Staff@ABC2026!` |
 
 ---
 
