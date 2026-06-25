@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import cron from 'node-cron';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import compression from 'compression';
 
 // ESM __dirname polyfill (required when "type": "module" in package.json)
 const __filename = fileURLToPath(import.meta.url);
@@ -229,6 +230,9 @@ async function startServer() {
     contentSecurityPolicy: false,     // SPA handles its own CSP
     hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
   }));
+
+  // ── Gzip compression (reduces API response size ~70%) ─────────────────
+  app.use(compression());
 
   // ── Rate limiting (express-rate-limit) ─────────────────────────────────
   const makeLimit = (max: number, windowMs: number) => rateLimit({
