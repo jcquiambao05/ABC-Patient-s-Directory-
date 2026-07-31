@@ -1473,6 +1473,23 @@ Be factual. Only use information provided. Do not invent details.`;
     }
   });
 
+  // ── AI: Status check — is Ollama reachable? ────────────────────────────
+  app.get("/api/ai/status", authenticateToken, async (req, res) => {
+    const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+    try {
+      const response = await fetch(`${OLLAMA_HOST}/api/tags`, {
+        signal: AbortSignal.timeout(3000), // 3 second timeout
+      });
+      if (response.ok) {
+        res.json({ online: true, host: OLLAMA_HOST });
+      } else {
+        res.json({ online: false, host: OLLAMA_HOST });
+      }
+    } catch {
+      res.json({ online: false, host: OLLAMA_HOST });
+    }
+  });
+
   // ── AI: Daily Briefing ─────────────────────────────────────────────────
   app.get("/api/ai/daily-briefing", authenticateToken, requireRole('staff','admin','superadmin'), async (req, res) => {
     try {
