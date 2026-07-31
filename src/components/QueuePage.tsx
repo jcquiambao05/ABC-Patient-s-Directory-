@@ -3,6 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, ListOrdered, UserCheck, ClipboardList, Eye, X, UserPlus, CalendarPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
+import { QueueRowSkeleton } from './Skeleton';
 import DetailPanel from './DetailPanel';
 import AddPatientModal from './AddPatientModal';
 import AppointmentModal from './AppointmentModal';
@@ -46,7 +48,7 @@ export default function QueuePage({ token, role }: Props) {
 
   const addToQueue = async (patientId: string) => {
     try { await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, token); loadQueue(); }
-    catch (err) { alert((err as Error).message); }
+    catch (err) { toast.error((err as Error).message); }
   };
 
   const handleNewPatientSaved = async () => {
@@ -67,7 +69,7 @@ export default function QueuePage({ token, role }: Props) {
     const next = queue.find(q => q.status === 'waiting');
     if (!next) return;
     try { await api(`/api/queue/${next.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'in_consultation' }) }, token); loadQueue(); }
-    catch (err) { alert((err as Error).message); }
+    catch (err) { toast.error((err as Error).message); }
   };
 
   const markDone = async (id: string) => {
@@ -75,21 +77,21 @@ export default function QueuePage({ token, role }: Props) {
       await api(`/api/queue/${id}/done`, { method: 'PATCH', body: '{}' }, token);
       setDoneConfirm(null);
       loadQueue();
-      // Find the entry to offer appointment scheduling
+      toast.success('Consultation marked as done.');
       const entry = queue.find(q => q.id === id);
       if (entry) setAppointmentEntry(entry);
-    } catch (err) { alert((err as Error).message); }
+    } catch (err) { toast.error((err as Error).message); }
   };
 
   const resetQueue = async () => {
-    try { await api('/api/queue/reset', { method: 'POST', body: '{}' }, token); setResetConfirm(false); loadQueue(); }
-    catch (err) { alert((err as Error).message); }
+    try { await api('/api/queue/reset', { method: 'POST', body: '{}' }, token); setResetConfirm(false); loadQueue(); toast.warn('Queue has been reset.'); }
+    catch (err) { toast.error((err as Error).message); }
   };
 
   const archiveDay = async () => {
     if (!confirm('Archive all queued patients for today?')) return;
-    try { await api('/api/queue/archive', { method: 'POST', body: '{}' }, token); loadQueue(); }
-    catch (err) { alert((err as Error).message); }
+    try { await api('/api/queue/archive', { method: 'POST', body: '{}' }, token); loadQueue(); toast.success('Day archived successfully.'); }
+    catch (err) { toast.error((err as Error).message); }
   };
 
   const updateRemarks = async (id: string, remarks: string) => {
@@ -101,7 +103,7 @@ export default function QueuePage({ token, role }: Props) {
     try {
       const [pd, ci] = await Promise.all([api(`/api/patients/${patientId}`, {}, token), api(`/api/patients/${patientId}/chart-images`, {}, token)]);
       setViewPatientData({ ...pd, chart_images: ci });
-    } catch (err) { alert((err as Error).message); }
+    } catch (err) { toast.error('Could not load patient record.'); }
   };
 
   const handleDrop = async (targetId: string) => {
@@ -203,8 +205,8 @@ export default function QueuePage({ token, role }: Props) {
         {/* Queue entries */}
         <div className="flex-1 overflow-y-auto space-y-1.5">
           {loading ? (
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+            <div className="space-y-1.5">
+              {Array.from({ length: 4 }).map((_, i) => <QueueRowSkeleton key={i} />)}
             </div>
           ) : queue.length === 0 ? (
             <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm text-center py-16 text-zinc-400">

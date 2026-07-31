@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Sparkles, Loader2, AlertTriangle, Phone } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
+import { StatCardSkeleton, RecentPatientSkeleton } from './Skeleton';
 import type { Patient } from '../types/index';
 
 interface NoShowStats {
@@ -55,7 +57,9 @@ export default function DashboardPage({ token }: { token: string }) {
       }
       const data = await api(url, {}, token);
       setStats(data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      toast.error('Failed to load dashboard stats. Check connection.');
+    }
     finally { setLoading(false); }
   }, [token, range, customFrom, customTo]);
 
@@ -149,31 +153,37 @@ export default function DashboardPage({ token }: { token: string }) {
         </div>
       )}
 
-      <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8 transition-opacity ${loading ? 'opacity-50' : ''}`}>
-        {cards.map(c => (
-          <div key={c.label} className={`${c.bg} rounded-2xl p-4 md:p-6`}>
-            <p className="text-xs md:text-sm text-zinc-500 mb-1">{c.label}</p>
-            <p className={`text-3xl md:text-4xl font-bold ${c.color}`}>{c.value}</p>
-          </div>
-        ))}
+      <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8`}>
+        {loading
+          ? Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />)
+          : cards.map(c => (
+            <div key={c.label} className={`${c.bg} rounded-2xl p-4 md:p-6`}>
+              <p className="text-xs md:text-sm text-zinc-500 mb-1">{c.label}</p>
+              <p className={`text-3xl md:text-4xl font-bold ${c.color}`}>{c.value}</p>
+            </div>
+          ))
+        }
       </div>
 
       <div>
         <h2 className="text-base font-bold text-zinc-500 uppercase tracking-wider mb-3">Recent Patients</h2>
         <div className="space-y-2">
-          {stats.recentPatients.map((p: Patient) => (
-            <div key={p.id} className="bg-white rounded-xl p-5 flex items-center gap-3 border border-zinc-100">
-              <div className="w-11 h-11 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 overflow-hidden">
-                {p.profile_photo_path
-                  ? <img src={`/${p.profile_photo_path}`} className="w-full h-full object-cover" alt="" />
-                  : p.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+          {loading
+            ? Array.from({ length: 3 }).map((_, i) => <RecentPatientSkeleton key={i} />)
+            : stats.recentPatients.map((p: Patient) => (
+              <div key={p.id} className="bg-white rounded-xl p-5 flex items-center gap-3 border border-zinc-100">
+                <div className="w-11 h-11 rounded-xl bg-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-600 overflow-hidden">
+                  {p.profile_photo_path
+                    ? <img src={`/${p.profile_photo_path}`} className="w-full h-full object-cover" alt="" />
+                    : p.full_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div>
+                  <p className="font-medium text-zinc-900 text-base">{p.full_name}</p>
+                  <p className="text-sm text-zinc-400">{new Date(p.created_at).toLocaleDateString()}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-zinc-900 text-base">{p.full_name}</p>
-                <p className="text-sm text-zinc-400">{new Date(p.created_at).toLocaleDateString()}</p>
-              </div>
-            </div>
-          ))}
+            ))
+          }
         </div>
       </div>
 

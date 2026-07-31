@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Save, CheckCircle, Edit3, Trash2, X, Activity } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
+import { Tooltip, TOOLTIPS } from './Tooltip';
 import type { ConsultationRecord } from '../types/index';
 
 interface Props {
@@ -82,7 +84,7 @@ function VitalsInputRow({ vitals, onChange }: VitalsInputRowProps) {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">Blood Pressure</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">Blood Pressure<Tooltip text={TOOLTIPS.bp} position="bottom" /></p>
           <div className="flex items-center gap-1">
             {inp('bp_systolic', '120')}
             <span className="text-zinc-400 font-bold text-xl flex-shrink-0">/</span>
@@ -91,29 +93,29 @@ function VitalsInputRow({ vitals, onChange }: VitalsInputRowProps) {
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">mmHg</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">Temperature</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">Temperature<Tooltip text={TOOLTIPS.temp} position="bottom" /></p>
           {inp('temp_celsius', '36.5', '0.1')}
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">°C</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">Heart Rate</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">Heart Rate<Tooltip text={TOOLTIPS.hr} position="bottom" /></p>
           {inp('heart_rate', '72')}
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">bpm</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">SpO2</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">SpO2<Tooltip text={TOOLTIPS.spo2} position="bottom" /></p>
           {inp('spo2', '98')}
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">%</p>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">Weight</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">Weight<Tooltip text={TOOLTIPS.weight} position="bottom" /></p>
           {inp('weight_kg', '60', '0.1')}
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">kg</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">Height</p>
+          <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2 flex items-center justify-center">Height<Tooltip text={TOOLTIPS.height} position="bottom" /></p>
           {inp('height_cm', '165')}
           <p className="text-[10px] text-zinc-400 text-center mt-1.5 font-medium">cm</p>
         </div>
@@ -225,7 +227,12 @@ export default function ConsultationTable({ records, token, patientId, role, onR
         body: JSON.stringify({ ...editData, vitals: cleanVitals(editVitals) }),
       }, token);
       setEditingId(null); onRefresh();
-    } catch (err) { setError((err as Error).message); }
+      toast.success('Consultation record saved.');
+    } catch (err) {
+      const msg = (err as Error).message;
+      setError(msg);
+      toast.error(`Save failed: ${msg}`);
+    }
     finally { setSaving(false); }
   };
 
@@ -234,13 +241,18 @@ export default function ConsultationTable({ records, token, patientId, role, onR
     try {
       await api(`/api/consultation-records/${id}/mark`, { method: 'PUT', body: '{}' }, token);
       setEditingId(null); onRefresh();
-    } catch (err) { setError((err as Error).message); }
+      toast.success('Record marked as reviewed.');
+    } catch (err) {
+      const msg = (err as Error).message;
+      setError(msg);
+      toast.error(`Mark failed: ${msg}`);
+    }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
-    try { await api(`/api/consultation-records/${id}`, { method: 'DELETE' }, token); onRefresh(); }
-    catch (err) { alert((err as Error).message); }
+    try { await api(`/api/consultation-records/${id}`, { method: 'DELETE' }, token); onRefresh(); toast.warn('Consultation record deleted.'); }
+    catch (err) { toast.error(`Delete failed: ${(err as Error).message}`); }
   };
 
   const handleAddNew = async () => {
@@ -251,7 +263,8 @@ export default function ConsultationTable({ records, token, patientId, role, onR
       setAddingNew(false);
       setNewRow({ date: new Date().toISOString().split('T')[0], subjective_clinical_findings: '', assessment_plan: '' });
       onRefresh();
-    } catch (err) { alert((err as Error).message); }
+      toast.success('New consultation record created.');
+    } catch (err) { toast.error(`Could not create record: ${(err as Error).message}`); }
   };
 
   return (

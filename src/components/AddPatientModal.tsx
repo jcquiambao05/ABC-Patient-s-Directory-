@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plus, Loader2, AlertCircle, Camera, CheckCircle, CheckSquare, Square } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import ESignatureCanvas from './ESignatureCanvas';
 import type { PastMedicalJSON, PersonalSocialJSON, FamilyHistoryJSON } from '../types/index';
 
@@ -80,8 +81,13 @@ export default function AddPatientModal({ token, onClose, onSaved }: Props) {
       }
       // All uploads done — now refresh the list so photo appears immediately
       await onSaved();
+      toast.success('Patient added to directory.');
       onClose();
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) {
+      const msg = (err as Error).message;
+      setError(msg);
+      toast.error(`Could not save patient: ${msg}`);
+    }
     finally { setSaving(false); }
   };
 

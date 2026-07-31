@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, UserPlus, Search, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
 import SignupPage from './SignupPage';
@@ -15,6 +15,9 @@ import SettingsPanel from './SettingsPanel';
 import AdminPanel from './AdminPanel';
 import CalendarPage from './CalendarPage';
 import LoginTransition from './LoginTransition';
+import ToastContainer from './ToastContainer';
+import { CabinetSkeleton } from './Skeleton';
+import { toast } from '../hooks/useToast';
 import { api } from '../lib/api';
 import type { Patient } from '../types/index';
 import {
@@ -34,6 +37,7 @@ export default function App() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [activeTab, setActiveTab] = useState('directory');
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,14 +134,10 @@ export default function App() {
 
   const fetchPatients = useCallback(async () => {
     if (!token) return;
-    // superadmin can view directory in read-only mode
-    if (role === 'superadmin') {
-      try { const data = await api('/api/patients', {}, token); setPatients(data); }
-      catch (err) { console.error(err); }
-      return;
-    }
+    setPatientsLoading(true);
     try { const data = await api('/api/patients', {}, token); setPatients(data); }
-    catch (err) { console.error(err); }
+    catch (err) { toast.error('Failed to load patient directory.'); }
+    finally { setPatientsLoading(false); }
   }, [token, role]);
 
   useEffect(() => { if (isAuthenticated && token) fetchPatients(); }, [isAuthenticated, token, fetchPatients]);
@@ -163,8 +163,15 @@ export default function App() {
   const cabinets = Object.keys(grouped).sort();
 
   if (isLoading) return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-4">
+      {/* Branded boot loader — matches app design */}
+      <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center">
+        <span className="text-zinc-950 font-black text-xl">A</span>
+      </div>
+      <span className="text-white font-semibold text-base tracking-tight">ABCare OmniFlow</span>
+      <div className="w-8 h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-1">
+        <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+      </div>
     </div>
   );
 
@@ -244,7 +251,12 @@ export default function App() {
 
                 {/* Patient list */}
                 <div className="flex-1 overflow-y-auto px-3 md:px-4 pb-3 md:pb-4 space-y-1.5">
-                  {cabinets.length === 0 ? (
+                  {patientsLoading ? (
+                    <>
+                      <CabinetSkeleton />
+                      <CabinetSkeleton />
+                    </>
+                  ) : cabinets.length === 0 ? (
                     <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm text-center py-16 text-zinc-400">
                       <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
                       <p>No patients found</p>
@@ -312,6 +324,9 @@ export default function App() {
         {showAdminPanel && token && role === 'superadmin' && (
           <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />
         )}
+
+        {/* Global toast notifications */}
+        <ToastContainer />
       </div>
     </PreferencesContext.Provider>
   );

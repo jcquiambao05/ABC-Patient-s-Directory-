@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, Clock, User, Plus, X, Trash2, Loader2, Bell, CheckCircle2, RefreshCw, Settings, List } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import AppointmentModal from './AppointmentModal';
 import DoctorSchedulePanel from './DoctorSchedulePanel';
 
@@ -61,11 +62,23 @@ export default function CalendarPage({ token, role }: Props) {
   const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
   const todayStr = today.toISOString().split('T')[0];
 
+  // Doctor unavailability — schedule blocks for the current month
+  const [blockedDates, setBlockedDates] = useState<Set<string>>(new Set());
+
   const loadMonth = useCallback(async () => {
     try {
-      const data = await api(`/api/appointments?month=${monthKey}`, {}, token);
-      setAppointments(data);
-    } catch (err) { console.error(err); }
+      const [apptData, blockData] = await Promise.all([
+        api(`/api/appointments?month=${monthKey}`, {}, token),
+        api(`/api/schedule-blocks`, {}, token).catch(() => []),
+      ]);
+      setAppointments(apptData);
+      const blocked = new Set<string>(
+        (blockData as any[]).map((b: any) => b.block_date?.split('T')[0] ?? b.block_date)
+      );
+      setBlockedDates(blocked);
+    } catch (err) {
+      toast.warn('Could not load appointments. Check connection.');
+    }
   }, [monthKey, token]);
 
   useEffect(() => { loadMonth(); }, [loadMonth]);
@@ -82,7 +95,9 @@ export default function CalendarPage({ token, role }: Props) {
     try {
       const data = await api(`/api/appointments?date=${dateStr}`, {}, token);
       setDayAppointments(data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      toast.error('Could not load appointments for this day.');
+    }
     finally { setLoadingDay(false); }
   }, [token]);
 
@@ -102,7 +117,10 @@ export default function CalendarPage({ token, role }: Props) {
       await api(`/api/appointments/${cancelTarget}`, { method: 'DELETE' }, token);
       if (selectedDate) loadDay(selectedDate);
       loadMonth();
-    } catch (err) { console.error(err); }
+      toast.success('Appointment cancelled.');
+    } catch (err) {
+      toast.error('Could not cancel appointment.');
+    }
     finally { setCancelling(false); setCancelTarget(null); }
   };
 
@@ -111,7 +129,10 @@ export default function CalendarPage({ token, role }: Props) {
       await api(`/api/appointments/${id}/attend`, { method: 'PATCH', body: '{}' }, token);
       if (selectedDate) loadDay(selectedDate);
       loadMonth();
-    } catch (err) { console.error(err); }
+      toast.success('Appointment marked as attended.');
+    } catch (err) {
+      toast.error('Could not mark as attended.');
+    }
   };
 
   const handleResendToken = async (id: string) => {
@@ -129,9 +150,15 @@ export default function CalendarPage({ token, role }: Props) {
     setSendingReminders(true); setReminderMsg('');
     try {
       const r = await api('/api/appointments/send-reminders', { method: 'POST', body: '{}' }, token);
-      setReminderMsg(`Sent ${r.sent} reminder${r.sent !== 1 ? 's' : ''} for ${r.targetDate}.`);
+      const msg = `Sent ${r.sent} reminder${r.sent !== 1 ? 's' : ''} for ${r.targetDate}.`;
+      setReminderMsg(msg);
+      toast.success(msg);
       setTimeout(() => setReminderMsg(''), 5000);
-    } catch (err) { setReminderMsg((err as Error).message); }
+    } catch (err) {
+      const msg = (err as Error).message;
+      setReminderMsg(msg);
+      toast.error(`Reminders failed: ${msg}`);
+    }
     finally { setSendingReminders(false); }
   };
 
@@ -217,15 +244,20 @@ export default function CalendarPage({ token, role }: Props) {
               const isToday = ds === todayStr;
               const isSelected = ds === selectedDate;
               const hasAppt = !!apptByDate[ds]?.length;
+              const isSundayMini = new Date(ds + 'T12:00:00').getDay() === 0;
+              const isBlockedMini = blockedDates.has(ds);
+              const isUnavailableMini = isSundayMini || isBlockedMini;
               return (
-                <button key={day} onClick={() => handleDayClick(ds)}
+                <button key={day} onClick={() => !isUnavailableMini && handleDayClick(ds)}
+                  disabled={isUnavailableMini}
                   className={`w-full aspect-square flex items-center justify-center rounded text-[10px] font-medium transition-colors relative ${
+                    isUnavailableMini ? 'text-zinc-300 cursor-not-allowed' :
                     isToday ? 'bg-emerald-500 text-white' :
                     isSelected ? 'bg-emerald-100 text-emerald-700' :
                     'hover:bg-zinc-100 text-zinc-600'
                   }`}>
                   {day}
-                  {hasAppt && !isToday && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />}
+                  {hasAppt && !isToday && !isUnavailableMini && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />}
                 </button>
               );
             })}
@@ -314,18 +346,30 @@ export default function CalendarPage({ token, role }: Props) {
             const isSelected = dateStr === selectedDate;
             const dayAppts = apptByDate[dateStr] || [];
             const isPast = dateStr < todayStr;
+            const isSunday = new Date(dateStr + 'T12:00:00').getDay() === 0;
+            const isBlocked = blockedDates.has(dateStr);
+            const isUnavailable = isSunday || isBlocked;
 
             return (
               <div key={day}
-                onClick={() => handleDayClick(dateStr)}
-                className={`border-r border-b border-zinc-100 h-[140px] overflow-hidden p-1 md:p-2 cursor-pointer transition-colors ${
-                  isSelected ? 'bg-emerald-50' : isPast ? 'bg-zinc-50/30 hover:bg-zinc-50' : 'hover:bg-zinc-50'
+                onClick={() => !isUnavailable && handleDayClick(dateStr)}
+                title={isSunday ? 'Closed — Sunday' : isBlocked ? 'Doctor unavailable' : undefined}
+                className={`border-r border-b border-zinc-100 h-[140px] overflow-hidden p-1 md:p-2 transition-colors ${
+                  isUnavailable
+                    ? 'bg-zinc-100 cursor-not-allowed'
+                    : isSelected ? 'bg-emerald-50 cursor-pointer' : isPast ? 'bg-zinc-50/30 hover:bg-zinc-50 cursor-pointer' : 'hover:bg-zinc-50 cursor-pointer'
                 }`}>
                 <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1 ${
+                  isUnavailable ? 'text-zinc-400' :
                   isToday ? 'bg-emerald-500 text-white' : isSelected ? 'bg-emerald-100 text-emerald-700' : 'text-zinc-600'
                 }`}>
                   {day}
                 </div>
+                {isUnavailable ? (
+                  <div className="text-[9px] text-zinc-400 px-1 mt-1">
+                    {isSunday ? 'Closed' : 'Unavailable'}
+                  </div>
+                ) : (
                 <div className="space-y-0.5">
                   {dayAppts.slice(0, 2).map(a => (
                     <div key={a.id} className="text-[9px] px-1 py-0.5 bg-emerald-100 text-emerald-700 rounded truncate font-medium leading-tight">
@@ -336,6 +380,7 @@ export default function CalendarPage({ token, role }: Props) {
                     <div className="text-[9px] text-zinc-400 px-1">+{dayAppts.length - 2}</div>
                   )}
                 </div>
+                )}
               </div>
             );
           })}

@@ -51,6 +51,8 @@ function SignupLink() {
   );
 }
 
+import { checkSessionExpiry } from '../lib/api';
+
 export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [mode, setMode] = useState<'login' | 'forgot' | 'mfa'>('login');
   const [forgotStep, setForgotStep] = useState<'email' | 'otp'>('email');
@@ -60,7 +62,7 @@ export default function Login({ onLoginSuccess, onShowSignup }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => checkSessionExpiry() ?? '');
   const [success, setSuccess] = useState('');
   const [tempToken, setTempToken] = useState('');
   const [otpCode, setOtpCode] = useState('');

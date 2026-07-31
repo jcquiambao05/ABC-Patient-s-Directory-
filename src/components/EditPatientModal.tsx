@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Loader2, AlertCircle, Camera, CheckSquare, Square } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import type { Patient, PastMedicalJSON, PersonalSocialJSON, FamilyHistoryJSON, PatientMedicalHistory } from '../types/index';
 
 interface Props {
@@ -63,7 +64,7 @@ export default function EditPatientModal({ patient, token, onClose, onSaved }: P
         if (mh.family_history && Object.keys(mh.family_history).length) setFamilyHistory(mh.family_history);
         if (mh.maintenance_medications_image_path) setExistingMedImage(`/${mh.maintenance_medications_image_path}`);
       })
-      .catch(console.error);
+      .catch(() => toast.warn('Could not load medical history — some fields may be empty.'));
   }, [patient.id, token]);
 
   const handleSubmit = async () => {
@@ -92,8 +93,13 @@ export default function EditPatientModal({ patient, token, onClose, onSaved }: P
 
       // All uploads done — refresh list so photo appears immediately
       await onSaved();
+      toast.success('Patient record updated.');
       onClose();
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) {
+      const msg = (err as Error).message;
+      setError(msg);
+      toast.error(`Update failed: ${msg}`);
+    }
     finally { setSaving(false); }
   };
 
