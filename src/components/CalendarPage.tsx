@@ -143,7 +143,7 @@ export default function CalendarPage({ token, role }: Props) {
         setResendLink(result.confirm_link);
         setResendCopied(true);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Could not generate confirmation link.'); }
   };
 
   const handleSendReminders = async () => {

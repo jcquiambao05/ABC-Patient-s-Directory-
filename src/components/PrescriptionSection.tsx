@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Loader2, Trash2, X, Edit3, Save } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 
 interface Prescription {
   id: string;
@@ -42,7 +43,7 @@ export default function PrescriptionSection({ patientId, token, role }: Props) {
     try {
       const data = await api(`/api/prescriptions/${patientId}`, {}, token);
       setPrescriptions(data);
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Failed to load prescriptions.'); }
     finally { setLoading(false); }
   }, [patientId, token]);
 
@@ -92,14 +93,15 @@ export default function PrescriptionSection({ patientId, token, role }: Props) {
       }, token);
       setEditingId(null);
       await load();
-    } catch (err) { alert((err as Error).message); }
+      toast.success('Prescription saved.');
+    } catch (err) { toast.error(`Save failed: ${(err as Error).message}`); }
     finally { setEditSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this prescription?')) return;
-    try { await api(`/api/prescriptions/${id}`, { method: 'DELETE' }, token); load(); }
-    catch (err) { alert((err as Error).message); }
+    try { await api(`/api/prescriptions/${id}`, { method: 'DELETE' }, token); load(); toast.warn('Prescription deleted.'); }
+    catch (err) { toast.error(`Delete failed: ${(err as Error).message}`); }
   };
 
   const inputCls = 'w-full px-2.5 py-1.5 bg-white border border-zinc-300 rounded-lg text-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30 text-zinc-900';

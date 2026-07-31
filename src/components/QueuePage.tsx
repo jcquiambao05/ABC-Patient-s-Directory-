@@ -35,7 +35,7 @@ export default function QueuePage({ token, role }: Props) {
       const [q, p] = await Promise.all([api('/api/queue', {}, token), api('/api/patients', {}, token)]);
       setQueue(q); setPatients(p);
       setLastUpdated(new Date());
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Failed to load queue.'); }
     finally { setLoading(false); }
   }, [token]);
 
@@ -52,16 +52,15 @@ export default function QueuePage({ token, role }: Props) {
   };
 
   const handleNewPatientSaved = async () => {
-    // Reload patients, then find the newest one and add to queue
     try {
       const updated: Patient[] = await api('/api/patients', {}, token);
       setPatients(updated);
       if (updated.length > 0) {
-        const newest = updated[0]; // ordered by created_at DESC
+        const newest = updated[0];
         await api('/api/queue', { method: 'POST', body: JSON.stringify({ patient_id: newest.id }) }, token);
         await loadQueue();
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Could not add new patient to queue.'); }
     setShowAddPatient(false);
   };
 
@@ -96,7 +95,7 @@ export default function QueuePage({ token, role }: Props) {
 
   const updateRemarks = async (id: string, remarks: string) => {
     try { await api(`/api/queue/${id}/remarks`, { method: 'PATCH', body: JSON.stringify({ remarks }) }, token); }
-    catch (err) { console.error(err); }
+    catch { /* remarks are non-critical, silent fail is acceptable */ }
   };
 
   const openPatientRecord = async (patientId: string) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, Loader2, Upload, FileText, Image, CheckCircle, Trash2, Printer, Save, Archive, ShieldCheck } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import ConsultationTable from './ConsultationTable';
 import ProcedureModal from './ProcedureModal';
 import PrescriptionSection from './PrescriptionSection';
@@ -179,7 +180,7 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
       setFullData(pd);
       setChartImages(ci);
       setProcedures(pr);
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Failed to load patient data. Try refreshing.'); }
     finally { setLoading(false); }
   }, [patient.id, token]);
 
@@ -244,10 +245,11 @@ export default function DetailPanel({ patient, token, role, onClose, onRefresh, 
   const handleVerify = async () => {
     setVerifying(true);
     try {
-      await api(`/api/patients/${patient.id}/verify`, { method: 'PATCH' }, token);
+      const result = await api(`/api/patients/${patient.id}/verify`, { method: 'PATCH' }, token);
       await loadData();
       onRefresh();
-    } catch (err) { alert((err as Error).message); }
+      toast.success(result.verified ? 'Patient marked as verified.' : 'Verification removed.');
+    } catch (err) { toast.error(`Verification failed: ${(err as Error).message}`); }
     finally { setVerifying(false); }
   };
 
@@ -1163,9 +1165,10 @@ ${sections.procedures && procedures.length ? `
                   setShowArchiveConfirm(false);
                   try {
                     await api(`/api/patients/${patient.id}`, { method: 'DELETE' }, token);
+                    toast.warn(`${patient.full_name} archived. Visible in Admin Panel.`);
                     onRefresh();
                     onClose();
-                  } catch (err) { alert((err as Error).message); }
+                  } catch (err) { toast.error(`Archive failed: ${(err as Error).message}`); }
                 }}
                 className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors"
               >
@@ -1212,7 +1215,8 @@ ${sections.procedures && procedures.length ? `
                       throw new Error(data.error || `Server error ${res.status}`);
                     }
                     await loadData();
-                  } catch (err) { alert((err as Error).message); }
+                    toast.success('Chart image deleted.');
+                  } catch (err) { toast.error(`Delete failed: ${(err as Error).message}`); }
                 }}
                 className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors">
                 Delete

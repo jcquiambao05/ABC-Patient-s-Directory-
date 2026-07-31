@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Printer, RefreshCw, ChevronDown, ChevronRight, Search, Calendar } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import type { AuditLog } from '../types/index';
 
 // ── Action config — human-readable labels, icons, colors ──────────────────
@@ -69,7 +70,7 @@ export default function AuditPage({ token }: { token: string }) {
         const firstDay = getDayKey(data[0].created_at);
         setExpandedDays(new Set([firstDay]));
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { toast.error('Failed to load audit log.'); }
     finally { setLoading(false); }
   }, [token, selectedMonth]);
 
@@ -103,7 +104,7 @@ export default function AuditPage({ token }: { token: string }) {
     try {
       const data: AuditLog[] = await api(`/api/audit-logs?date=${printDate}`, {}, token);
       if (data.length === 0) {
-        alert('No audit events found for ' + printDate);
+        toast.info('No audit events found for ' + printDate);
         return;
       }
 
@@ -175,7 +176,7 @@ export default function AuditPage({ token }: { token: string }) {
       w.document.close();
       w.focus();
       setTimeout(() => w.print(), 400);
-    } catch (err) { alert('Failed to load audit data for printing.'); }
+    } catch (err) { toast.error('Failed to load audit data for printing.'); }
   };
 
   // ── Toggle helpers ────────────────────────────────────────────────────────

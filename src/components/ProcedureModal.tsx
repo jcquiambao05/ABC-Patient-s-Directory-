@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, ChevronRight, Loader2, CheckCircle, MessageSquare, Stethoscope, Pill, Plus, Syringe, Heart, Eye, Bone, Brain } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 import ESignatureCanvas from './ESignatureCanvas';
 
 interface Props {
@@ -81,8 +82,9 @@ export default function ProcedureModal({ token, patientId, role, onClose, onSave
         }),
       }, token);
       onSaved();
+      toast.success('Procedure logged successfully.');
       onClose();
-    } catch (err) { alert((err as Error).message); }
+    } catch (err) { toast.error(`Failed to save procedure: ${(err as Error).message}`); }
     finally { setSaving(false); }
   };
 

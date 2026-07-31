@@ -94,7 +94,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
         body: JSON.stringify({ preferences: updated }),
       });
-    } catch (err) { console.error('Failed to save preferences', err); }
+    } catch { /* preference save failure is non-critical */ }
   }, [preferences]);
 
   const handleLoginSuccess = async (newToken: string) => {
@@ -122,7 +122,7 @@ export default function App() {
       }
     } catch { /* use defaults */ }
     try { const data = await api('/api/patients', {}, newToken); setPatients(data); }
-    catch (err) { console.error(err); }
+    catch { /* directory load failure is non-blocking on login */ }
   };
 
   const handleLogout = () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { api } from '../lib/api';
+import { toast } from '../hooks/useToast';
 
 interface Props {
   token: string;
@@ -85,7 +86,7 @@ export default function DoctorSchedulePanel({ token, role }: Props) {
         };
       });
       setDayForms(forms);
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) { setError((err as Error).message); toast.error(`Load failed: ${(err as Error).message}`); }
     finally { setLoading(false); }
   }, [token]);
 
@@ -113,7 +114,8 @@ export default function DoctorSchedulePanel({ token, role }: Props) {
         }, token);
       }
       await load();
-    } catch (err) { setError((err as Error).message); }
+      toast.success('Schedule saved.');
+    } catch (err) { setError((err as Error).message); toast.error(`Save failed: ${(err as Error).message}`); }
     finally { setSaving(null); }
   };
 
@@ -127,7 +129,8 @@ export default function DoctorSchedulePanel({ token, role }: Props) {
       }, token);
       setBlockDate(''); setBlockReason('');
       await load();
-    } catch (err) { setError((err as Error).message); }
+      toast.success('Date blocked successfully.');
+    } catch (err) { setError((err as Error).message); toast.error(`Could not block date: ${(err as Error).message}`); }
     finally { setAddingBlock(false); }
   };
 
@@ -135,7 +138,8 @@ export default function DoctorSchedulePanel({ token, role }: Props) {
     try {
       await api(`/api/schedule-blocks/${id}`, { method: 'DELETE' }, token);
       await load();
-    } catch (err) { alert((err as Error).message); }
+      toast.success('Date unblocked.');
+    } catch (err) { toast.error(`Could not remove block: ${(err as Error).message}`); }
   };
 
   const updateForm = (day: number, patch: Partial<typeof dayForms[number]>) => {
